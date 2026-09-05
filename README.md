@@ -30,9 +30,11 @@ Reports: `app/build/reports/tests/` and `app/build/reports/lint-results-debug.ht
 Development verification (2026-09-05): `./gradlew test assembleDebug lint` passed
 with JDK 21. All 17 deterministic tests passed in both debug and release variants.
 The debug APK's signature was also verified. After launcher/backup resource updates,
-`./gradlew assembleDebug lint` passed again. Final lint: 0 errors and 2 newer-version
-advisories for the pinned Gradle/Compose versions. No device launch or live sensor
-test was performed during this verification.
+`./gradlew assembleDebug lint` passed again. Lint reports no errors; newer-version
+advisories remain for the pinned Gradle, Compose, Activity, and Lifecycle versions.
+Final checks also included `./gradlew assembleDebug lint --rerun-tasks --no-watch-fs`
+and `./gradlew lint --no-watch-fs`. No device launch or live sensor test was performed
+during this verification.
 
 On the Pixel 8, enable Developer options by tapping **Settings → About phone → Build
 number** seven times. Enable **Settings → System → Developer options → USB debugging**.
