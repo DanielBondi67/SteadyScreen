@@ -15,7 +15,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 
-// Bound the saved document so it does not consume the activity's entire saved-state budget.
+// Keep pasted documents manageable for the editor and local storage.
 private const val MaxReadingCharacters = 100_000
 
 @Composable
@@ -37,7 +37,7 @@ internal fun ReadingTextDialog(text: String, onApply: (String) -> Unit, onDismis
                     supportingText = { Text("${draft.length} / $MaxReadingCharacters characters") },
                     modifier = Modifier.fillMaxWidth(),
                 )
-                Text("Applied text stays on this device and resets after a fresh launch.")
+                Text("Use text saves your reading material on this device for the next launch.")
                 TextButton(onClick = { onApply("") }) { Text("Use original sample") }
             }
         },

@@ -70,9 +70,11 @@ Important code is under `app/src/main/java/com/steadyscreen/`:
 - `stabilization/StabilizationTransform.kt`: central output; X and Z rotation stay zero.
 - `ui/ReadingController.kt`: sensor freshness, display-frame publication, diagnostics.
 - `ui/ReadingTestScreen.kt`: controls, paragraphs, debug panel, lifecycle binding.
-- `ui/TuningDialog.kt`: live controls for every configuration value and recreation saver.
+- `ui/TuningDialog.kt`: live controls for every configuration value and tuning reset.
 - `ui/ReadingTextDialog.kt`: local paste/edit dialog for custom reading material.
 - `render/StabilizedContent.kt`: clipped, overscanned reading layer.
+- `settings/ReadingSettings.kt`: saved user choices and named-key encoding with default recovery.
+- `settings/ReadingSettingsStore.kt`: local Android preferences, separate from sensor processing.
 
 Samples, controls, and frame reads run serially on the main thread. Sensor callbacks
 perform only a small amount of math and do not write Compose state. Transform state
@@ -80,7 +82,7 @@ is read inside `graphicsLayer`, so frames do not recompose or lay out the paragr
 Only the debug panel reads the diagnostic state at 5 Hz. Sensors run only while the
 reading screen is resumed; navigating away, backgrounding, or destroying the activity
 unregisters both listeners. OFF keeps sensors active for comparison/diagnostics while
-the reading screen is visible. Controls survive configuration changes; orientation
+the reading screen is visible. Controls survive app restarts and configuration changes; orientation
 state starts from a new baseline after a lifecycle restart.
 
 The engine normalizes each game rotation quaternion and maps the display's X axis
@@ -108,15 +110,40 @@ for freshness.
 Use **Reading text** to paste your own material, then **Use text** to display it in
 the stabilized reader. Paragraphs scroll lazily; replacing the text starts at the
 top. **Use original sample** restores the bundled story. No movie script is bundled.
-Applied text survives rotation, remains local, and resets after a fresh launch.
-The limit is 100,000 characters to bound Android saved-state size. Unapplied editor
+Applied text is saved locally and restored after rotation and app restarts.
+The limit is 100,000 characters to keep editing and local storage manageable. Unapplied editor
 changes are discarded if the dialog is dismissed or the activity is recreated.
+
+## Saved settings
+
+Settings save automatically whenever a control changes; no Save button is required.
+This includes stabilization ON/OFF, gain, every tuning value, diagnostics visibility,
+and reading material applied with **Use text**. **Reset defaults** in **Tune settings**
+restores and saves all tuning defaults while preserving ON/OFF, diagnostics visibility,
+and reading text. **Use original sample** saves the selection of the bundled story.
+Opening or closing a dialog is temporary UI state, not a permanent preference.
+
+Settings use app-private Android SharedPreferences. Reading text is stored separately,
+so dragging sliders never rewrites the document. Only changed preferences are submitted
+through [Editor.apply()](https://developer.android.com/reference/android/content/SharedPreferences.Editor#apply()),
+which updates memory immediately and schedules disk writes asynchronously. New screen
+instances restore from these preferences instead of saving the document in an activity
+Bundle. Missing values use defaults; invalid filter configurations recover to defaults
+without discarding text or switches. No sensor samples or orientation state are saved.
+Existing backup and device-transfer exclusions keep these preferences local. Clearing
+app data or uninstalling the app removes the saved settings and reading text.
+
+Pixel 8 restart check: change gain, switch OFF, change several tuning values, hide
+diagnostics, and apply custom text. Close/force-stop and reopen the app, then verify
+all choices return. Repeat after rotation and a phone restart. Reset tuning defaults,
+reopen, and verify defaults remain while your text and ON/OFF choice are preserved.
+Finally choose the original sample, reopen, and verify it remains selected.
 
 ## Default tuning
 
 All defaults below are in `StabilizationConfig.kt`. **Tune settings** exposes every value
 live, with units, a direction switch, and **Reset defaults**. Gain remains available on
-the reading screen too. Settings survive rotation but reset on a fresh launch.
+the reading screen too. Settings save automatically and survive rotation and fresh launches.
 Sampling period changes re-register active sensors; changes while paused take effect
 on resume. The sampling control requests 100–200 Hz, and diagnostics stay throttled
 to 1–10 Hz. Changing other values preserves the current reference orientation.
@@ -186,6 +213,16 @@ No physical validation result is claimed by this repository.
 
 ## Tests and limitations
 
+Persistence verification (2026-09-07): `./gradlew test assembleDebug lint --offline --no-watch-fs`
+passed with JDK 21 and SDK 36. All 26 tests passed in each debug/release variant;
+lint reported zero errors and one existing Gradle-version advisory. The seven
+`settings/ReadingSettingsStoreTest.kt` tests use an in-memory SharedPreferences test
+double to cover fresh defaults, restoration through new store instances, full numeric
+precision and Unicode text, both persisted resets, write isolation, and invalid values.
+They replace the former activity-state saver test. No device was connected, so actual
+Android disk persistence, force-stop/reboot restoration, and physical reading behavior
+still need the Pixel 8 checks above.
+
 Change verification (2026-09-06): `./gradlew test assembleDebug lint --offline --no-watch-fs`
 passed with JDK 21 and SDK 36. All 20 tests passed in both debug and release variants,
 including ongoing motion while OFF, zero/restored gain, and preservation of every
@@ -206,12 +243,12 @@ there is no prediction or measured latency budget. The math assumes small relati
 rotations; large combined rotations can mix into extracted pitch, although output is
 always clamped. Position-only shaking cannot be estimated from orientation. Overscan
 reduces exposed edges but may not cover the full 80 px excursion; clipping and margins
-are intentionally simple. Text is English-only, and settings reset after a fresh launch.
+are intentionally simple. The bundled sample and interface are English-only.
 
 No later milestone is implemented. Horizontal compensation, adaptive strength,
 accelerometer work, prediction, timing instrumentation, and Quick Settings remain
 deferred until MVP 1 is physically evaluated. System-wide stabilization, accessibility,
-camera/eye tracking, backend, analytics, and storage are out of scope.
+camera/eye tracking, backend, analytics, and persistent sensor storage are out of scope.
 
 Platform references: [Android sensor behavior and sampling limits](https://developer.android.com/develop/sensors-and-location/sensors/sensors_overview),
 [AGP 8.13 compatibility](https://developer.android.com/build/releases/agp-8-13-0-release-notes),

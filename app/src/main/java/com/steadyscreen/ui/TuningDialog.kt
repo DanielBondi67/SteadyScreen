@@ -13,7 +13,6 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
@@ -22,22 +21,6 @@ import com.steadyscreen.stabilization.StabilizationConfig
 import java.util.Locale
 import kotlin.math.roundToInt
 import kotlin.math.roundToLong
-
-// Save only tuning values across recreation, never sensor state.
-internal val StabilizationConfigSaver = listSaver<StabilizationConfig, Any>(
-    save = { listOf(it.gain, it.maxVerticalTranslationPx, it.deadZoneRadians,
-        it.referenceTimeConstantSeconds, it.smoothingTimeConstantSeconds,
-        it.returnTimeConstantSeconds, it.pixelsPerRadian, it.compensationDirection,
-        it.overscanScale, it.sensorTimeoutSeconds, it.sensorSamplingPeriodUs, it.debugIntervalNanos) },
-    restore = { StabilizationConfig(
-        gain = it[0] as Float, maxVerticalTranslationPx = it[1] as Float,
-        deadZoneRadians = it[2] as Double, referenceTimeConstantSeconds = it[3] as Double,
-        smoothingTimeConstantSeconds = it[4] as Double, returnTimeConstantSeconds = it[5] as Double,
-        pixelsPerRadian = it[6] as Float, compensationDirection = it[7] as Float,
-        overscanScale = it[8] as Float, sensorTimeoutSeconds = it[9] as Double,
-        sensorSamplingPeriodUs = it[10] as Int, debugIntervalNanos = it[11] as Long,
-    ) },
-)
 
 @Composable
 internal fun TuningDialog(
@@ -50,7 +33,7 @@ internal fun TuningDialog(
         title = { Text("Stabilization tuning") },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
-                Text("Changes apply live. Values survive rotation and reset after a fresh launch.")
+                Text("Changes apply live and save automatically on this device. Reset defaults restores tuning values.")
                 TuningSlider("Gain", config.gain, 0f..2f, "%.2f") { onConfig(config.copy(gain = it)) }
                 TuningSlider("Vertical clamp", config.maxVerticalTranslationPx, 1f..200f, "±%.0f px") {
                     onConfig(config.copy(maxVerticalTranslationPx = it))

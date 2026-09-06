@@ -42,7 +42,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.steadyscreen.render.StabilizedContent
-import com.steadyscreen.stabilization.StabilizationConfig
+import com.steadyscreen.settings.ReadingSettings
+import com.steadyscreen.settings.ReadingSettingsStore
 import java.util.Locale
 import kotlinx.coroutines.isActive
 
@@ -51,14 +52,18 @@ fun ReadingTestScreen() {
     val context = LocalContext.current
     val view = LocalView.current
     val controller = remember(context, view) { ReadingController(context) { view.display?.rotation ?: 0 } }
-    var enabled by rememberSaveable { mutableStateOf(true) }
-    var config by rememberSaveable(stateSaver = StabilizationConfigSaver) {
-        mutableStateOf(StabilizationConfig())
+    val settingsStore = remember(context) { ReadingSettingsStore(context) }
+    var settings by remember(settingsStore) { mutableStateOf(settingsStore.load()) }
+    val updateSettings: (ReadingSettings) -> Unit = {
+        settings = it
+        settingsStore.save(it)
     }
-    var showDebug by rememberSaveable { mutableStateOf(true) }
+    val enabled = settings.enabled
+    val config = settings.config
+    val showDebug = settings.showDebug
+    val customText = settings.readingText
     var showTuning by rememberSaveable { mutableStateOf(false) }
     var showTextEditor by rememberSaveable { mutableStateOf(false) }
-    var customText by rememberSaveable { mutableStateOf("") }
     // Read settings during composition so changes invalidate this scope, even when
     // the controls live in BoxWithConstraints' separate subcomposition.
     val currentEnabled = enabled
@@ -72,11 +77,11 @@ fun ReadingTestScreen() {
         while (isActive) withFrameNanos { controller.onFrame() }
     }
     if (showTuning) {
-        TuningDialog(config, { config = it }, { showTuning = false })
+        TuningDialog(config, { updateSettings(settings.copy(config = it)) }, { showTuning = false })
     }
     if (showTextEditor) {
         ReadingTextDialog(customText, onApply = {
-            customText = it
+            updateSettings(settings.copy(readingText = it))
             showTextEditor = false
         }, onDismiss = { showTextEditor = false })
     }
@@ -86,20 +91,28 @@ fun ReadingTestScreen() {
             if (maxWidth > maxHeight) {
                 Row(Modifier.fillMaxSize()) {
                     Column(Modifier.width(300.dp).verticalScroll(rememberScrollState())) {
-                        Controls(enabled, config.gain, { enabled = it }, { config = config.copy(gain = it) },
+                        Controls(enabled, config.gain,
+                            { updateSettings(settings.copy(enabled = it)) },
+                            { updateSettings(settings.copy(config = settings.config.copy(gain = it))) },
                             onTuning = { showTuning = true }, onText = { showTextEditor = true })
-                        DebugPanel(controller, enabled, showDebug) { showDebug = !showDebug }
+                        DebugPanel(controller, enabled, showDebug) {
+                            updateSettings(settings.copy(showDebug = !settings.showDebug))
+                        }
                     }
                     ReadingText(controller, config.overscanScale, customText, Modifier.weight(1f).fillMaxSize())
                 }
             } else {
                 Column(Modifier.fillMaxSize()) {
-                    Controls(enabled, config.gain, { enabled = it }, { config = config.copy(gain = it) },
+                    Controls(enabled, config.gain,
+                        { updateSettings(settings.copy(enabled = it)) },
+                        { updateSettings(settings.copy(config = settings.config.copy(gain = it))) },
                         onTuning = { showTuning = true }, onText = { showTextEditor = true })
                     HorizontalDivider()
                     ReadingText(controller, config.overscanScale, customText, Modifier.weight(1f).fillMaxWidth())
                     HorizontalDivider()
-                    DebugPanel(controller, enabled, showDebug) { showDebug = !showDebug }
+                    DebugPanel(controller, enabled, showDebug) {
+                        updateSettings(settings.copy(showDebug = !settings.showDebug))
+                    }
                 }
             }
         }
