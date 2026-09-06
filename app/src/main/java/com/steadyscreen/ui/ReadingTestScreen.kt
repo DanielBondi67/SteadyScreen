@@ -22,7 +22,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -47,15 +46,17 @@ import kotlinx.coroutines.isActive
 fun ReadingTestScreen() {
     val context = LocalContext.current
     val view = LocalView.current
-    val defaults = remember { StabilizationConfig() }
     val controller = remember(context, view) { ReadingController(context) { view.display?.rotation ?: 0 } }
     var enabled by rememberSaveable { mutableStateOf(true) }
-    var gain by rememberSaveable { mutableFloatStateOf(defaults.gain) }
+    var config by rememberSaveable(stateSaver = StabilizationConfigSaver) {
+        mutableStateOf(StabilizationConfig())
+    }
     var showDebug by rememberSaveable { mutableStateOf(true) }
+    var showTuning by rememberSaveable { mutableStateOf(false) }
     // Read settings during composition so changes invalidate this scope, even when
     // the controls live in BoxWithConstraints' separate subcomposition.
     val currentEnabled = enabled
-    val currentConfig = defaults.copy(gain = gain)
+    val currentConfig = config
     SideEffect { controller.configure(currentEnabled, currentConfig) }
     LifecycleResumeEffect(controller) {
         controller.start()
@@ -64,22 +65,27 @@ fun ReadingTestScreen() {
     LaunchedEffect(controller) {
         while (isActive) withFrameNanos { controller.onFrame() }
     }
+    if (showTuning) {
+        TuningDialog(config, { config = it }, { showTuning = false })
+    }
 
     Surface(Modifier.fillMaxSize()) {
         BoxWithConstraints(Modifier.fillMaxSize().safeDrawingPadding()) {
             if (maxWidth > maxHeight) {
                 Row(Modifier.fillMaxSize()) {
                     Column(Modifier.width(300.dp).verticalScroll(rememberScrollState())) {
-                        Controls(enabled, gain, { enabled = it }, { gain = it })
+                        Controls(enabled, config.gain, { enabled = it }, { config = config.copy(gain = it) },
+                            onTuning = { showTuning = true })
                         DebugPanel(controller, enabled, showDebug) { showDebug = !showDebug }
                     }
-                    ReadingText(controller, defaults.overscanScale, Modifier.weight(1f).fillMaxSize())
+                    ReadingText(controller, config.overscanScale, Modifier.weight(1f).fillMaxSize())
                 }
             } else {
                 Column(Modifier.fillMaxSize()) {
-                    Controls(enabled, gain, { enabled = it }, { gain = it })
+                    Controls(enabled, config.gain, { enabled = it }, { config = config.copy(gain = it) },
+                        onTuning = { showTuning = true })
                     HorizontalDivider()
-                    ReadingText(controller, defaults.overscanScale, Modifier.weight(1f).fillMaxWidth())
+                    ReadingText(controller, config.overscanScale, Modifier.weight(1f).fillMaxWidth())
                     HorizontalDivider()
                     DebugPanel(controller, enabled, showDebug) { showDebug = !showDebug }
                 }
@@ -89,7 +95,13 @@ fun ReadingTestScreen() {
 }
 
 @Composable
-private fun Controls(enabled: Boolean, gain: Float, onEnabled: (Boolean) -> Unit, onGain: (Float) -> Unit) {
+private fun Controls(
+    enabled: Boolean,
+    gain: Float,
+    onEnabled: (Boolean) -> Unit,
+    onGain: (Float) -> Unit,
+    onTuning: () -> Unit,
+) {
     Column(Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) {
         Text("SteadyScreen", style = MaterialTheme.typography.titleLarge)
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
@@ -101,6 +113,7 @@ private fun Controls(enabled: Boolean, gain: Float, onEnabled: (Boolean) -> Unit
         Text(String.format(Locale.US, "Gain %.2f", gain), style = MaterialTheme.typography.labelLarge)
         Slider(value = gain, onValueChange = onGain, valueRange = 0f..2f,
             modifier = Modifier.semantics { contentDescription = "Stabilization gain" })
+        TextButton(onClick = onTuning) { Text("Tune settings") }
     }
 }
 

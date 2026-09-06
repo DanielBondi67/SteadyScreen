@@ -12,9 +12,10 @@ import com.steadyscreen.stabilization.Quaternion
 /** Main-thread callbacks serialize acquisition with controls and frame reads; no queues or logging. */
 class AndroidSensorProvider(
     context: Context,
-    private val samplingPeriodUs: Int,
+    samplingPeriodUs: Int,
     private val onOrientation: (Long, Quaternion) -> Unit,
 ) : SensorEventListener {
+    private var samplingPeriodUs = samplingPeriodUs
     private val manager = context.getSystemService(SensorManager::class.java)
     private val rotationSensor = manager?.getDefaultSensor(Sensor.TYPE_GAME_ROTATION_VECTOR)
     private val gyroSensor = manager?.getDefaultSensor(Sensor.TYPE_GYROSCOPE)
@@ -33,6 +34,17 @@ class AndroidSensorProvider(
         private set
     var gyroTimestampNanos = 0L
         private set
+
+    fun setSamplingPeriod(periodUs: Int) {
+        require(periodUs >= 5_000)
+        if (periodUs == samplingPeriodUs) return
+        samplingPeriodUs = periodUs
+        // Registration captures the requested period; changing a field alone has no effect.
+        if (running) {
+            stop()
+            start()
+        }
+    }
 
     fun start() {
         if (running) return

@@ -66,10 +66,11 @@ Important code is under `app/src/main/java/com/steadyscreen/`:
 - `sensor/AndroidSensorProvider.kt`: acquires both sensors, releases listeners,
   and exposes in-memory gyro values in Android's device axes, in radians/second.
 - `stabilization/Quaternion.kt` and `StabilizationEngine.kt`: orientation math and filters.
-- `stabilization/StabilizationConfig.kt`: all experimental filter/sampling defaults.
+- `stabilization/StabilizationConfig.kt`: all experimental filter/sampling defaults (adjustable live).
 - `stabilization/StabilizationTransform.kt`: central output; X and Z rotation stay zero.
 - `ui/ReadingController.kt`: sensor freshness, display-frame publication, diagnostics.
 - `ui/ReadingTestScreen.kt`: controls, paragraphs, debug panel, lifecycle binding.
+- `ui/TuningDialog.kt`: live controls for every configuration value and recreation saver.
 - `render/StabilizedContent.kt`: clipped, overscanned reading layer.
 
 Samples, controls, and frame reads run serially on the main thread. Sensor callbacks
@@ -103,7 +104,17 @@ for freshness.
 
 ## Default tuning
 
-All values below are in `StabilizationConfig.kt`; only gain is adjustable in the UI.
+All defaults below are in `StabilizationConfig.kt`. **Tune settings** exposes every value
+live, with units, a direction switch, and **Reset defaults**. Gain remains available on
+the reading screen too. Settings survive rotation but reset on a fresh launch.
+Sampling period changes re-register active sensors; changes while paused take effect
+on resume. The sampling control requests 100–200 Hz, and diagnostics stay throttled
+to 1–10 Hz. Changing other values preserves the current reference orientation.
+
+Toggle and config values are read during composition before publication to the
+controller. This ensures edits in the nested control layout update the engine;
+reading state only inside `SideEffect` previously missed that invalidation. See
+[Compose side effects](https://developer.android.com/develop/ui/compose/side-effects).
 
 | Parameter | Default | Purpose |
 | --- | --- | --- |
@@ -130,7 +141,7 @@ is perceptually helpful. Pixel mapping also depends on viewing distance and post
 | Too strong | Reduce live gain. Reduce the clamp if excursions are uncomfortable. |
 | Delayed / trailing | Reduce `smoothingTimeConstantSeconds`; check observed sensor rate. A shorter reference time also shortens the residual tail but weakens compensation. |
 | Jittery / swimming at rest | Increase dead zone slightly, then smoothing if needed; smoothing adds lag. |
-| Moves in the wrong direction | Change `compensationDirection` from -1 to +1, rebuild, reinstall, and repeat the comparison. |
+| Moves in the wrong direction | Use **Tune settings → Reverse direction (+1)** and repeat the comparison. |
 | Holds an offset too long | Reduce `referenceTimeConstantSeconds` so posture changes recenter faster. |
 
 ## Physical validation
@@ -148,10 +159,12 @@ not change text size. Do not infer success just because the text visibly moves.
    and compare if the default increases apparent motion.
 3. **ON/OFF and gain:** switch OFF during visible compensation; it should return to
    neutral over a few tenths of a second. Larger gain should increase motion until
-   ±80 px is reached. UI controls and diagnostics themselves must remain fixed.
+   the configured clamp is reached. Try gain 0 to confirm motion stops. UI controls and diagnostics themselves must remain fixed.
 4. **Lifecycle/rotation:** background and resume the app; expect a fresh neutral
    baseline. Rotate portrait/landscape and repeat controlled pitch. Check both streams
-   become active again. A phone without the required sensors should show an unavailable
+   become active again. Change sampling to 10 ms and verify streams resume; rotate
+   and verify tuning values remain selected. Reset defaults and verify gain returns
+   to 0.6 and overscan to 1.08. A phone without the required sensors should show an unavailable
    status and retain a usable, unstabilized reading test.
 5. **Walking, then train/bus, then bumpy car ride as a passenger:** repeat comparable
    ON/OFF trials and note reading ease, ability to hold your place, lag, and discomfort.

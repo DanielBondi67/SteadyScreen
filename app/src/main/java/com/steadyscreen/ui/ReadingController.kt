@@ -35,8 +35,10 @@ class ReadingController(context: Context, displayRotation: () -> Int) {
         private set
 
     fun configure(enabled: Boolean, config: StabilizationConfig) {
+        if (engine.enabled != enabled || engine.config != config) lastDebugNanos = 0L
         engine.enabled = enabled
         engine.config = config
+        sensors.setSamplingPeriod(config.sensorSamplingPeriodUs)
     }
 
     fun start() {
