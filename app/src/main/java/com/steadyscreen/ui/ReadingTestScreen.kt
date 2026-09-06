@@ -52,7 +52,11 @@ fun ReadingTestScreen() {
     var enabled by rememberSaveable { mutableStateOf(true) }
     var gain by rememberSaveable { mutableFloatStateOf(defaults.gain) }
     var showDebug by rememberSaveable { mutableStateOf(true) }
-    SideEffect { controller.configure(enabled, defaults.copy(gain = gain)) }
+    // Read settings during composition so changes invalidate this scope, even when
+    // the controls live in BoxWithConstraints' separate subcomposition.
+    val currentEnabled = enabled
+    val currentConfig = defaults.copy(gain = gain)
+    SideEffect { controller.configure(currentEnabled, currentConfig) }
     LifecycleResumeEffect(controller) {
         controller.start()
         onPauseOrDispose { controller.stop() }

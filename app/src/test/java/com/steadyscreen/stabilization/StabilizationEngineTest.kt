@@ -97,6 +97,34 @@ class StabilizationEngineTest {
         assertEquals(0f, previous, 0f)
     }
 
+    @Test fun disablingIgnoresOngoingMotionAndReenablesFromCurrentPose() {
+        val motion = Motion()
+        motion.sample(pitch(0.0))
+        var previous = abs(motion.sample(pitch(0.2)))
+        motion.engine.enabled = false
+        repeat(400) {
+            val next = abs(motion.sample(pitch(if (it % 2 == 0) -0.2 else 0.2)))
+            assertTrue(next <= previous)
+            previous = next
+        }
+        assertEquals(0f, previous, 0f)
+        motion.engine.enabled = true
+        assertEquals(0f, motion.sample(pitch(0.2)), 0f)
+        assertTrue(motion.sample(pitch(0.25)) < 0f)
+    }
+
+    @Test fun zeroGainSuppressesOngoingMotionAndGainCanBeRestored() {
+        val motion = Motion()
+        motion.sample(pitch(0.0))
+        assertTrue(motion.sample(pitch(0.1)) < 0f)
+        motion.engine.config = motion.engine.config.copy(gain = 0f)
+        repeat(40) {
+            assertEquals(0f, motion.sample(pitch(if (it % 2 == 0) -0.1 else 0.1)), 0f)
+        }
+        motion.engine.config = motion.engine.config.copy(gain = 0.6f)
+        assertTrue(motion.sample(pitch(0.2)) < 0f)
+    }
+
     @Test fun staleOrUnavailableSensorsReturnToZeroAndResumeWithNewBaseline() {
         for (available in listOf(true, false)) {
             val motion = Motion()
