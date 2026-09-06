@@ -71,6 +71,7 @@ Important code is under `app/src/main/java/com/steadyscreen/`:
 - `ui/ReadingController.kt`: sensor freshness, display-frame publication, diagnostics.
 - `ui/ReadingTestScreen.kt`: controls, paragraphs, debug panel, lifecycle binding.
 - `ui/TuningDialog.kt`: live controls for every configuration value and recreation saver.
+- `ui/ReadingTextDialog.kt`: local paste/edit dialog for custom reading material.
 - `render/StabilizedContent.kt`: clipped, overscanned reading layer.
 
 Samples, controls, and frame reads run serially on the main thread. Sensor callbacks
@@ -101,6 +102,15 @@ rotation-vector update frequency, enabled state, and stream availability. Raw mo
 can be nonzero while OFF; final translation should settle to zero. RV Hz is the observed
 orientation rate, not display refresh rate. Gyroscope timestamps are checked separately
 for freshness.
+
+## Reading material
+
+Use **Reading text** to paste your own material, then **Use text** to display it in
+the stabilized reader. Paragraphs scroll lazily; replacing the text starts at the
+top. **Use original sample** restores the bundled story. No movie script is bundled.
+Applied text survives rotation, remains local, and resets after a fresh launch.
+The limit is 100,000 characters to bound Android saved-state size. Unapplied editor
+changes are discarded if the dialog is dismissed or the activity is recreated.
 
 ## Default tuning
 
@@ -175,6 +185,13 @@ sensor rate, perceived improvement/worsening, and whether output hits its clamp.
 No physical validation result is claimed by this repository.
 
 ## Tests and limitations
+
+Change verification (2026-09-06): `./gradlew test assembleDebug lint --offline --no-watch-fs`
+passed with JDK 21 and SDK 36. All 20 tests passed in both debug and release variants,
+including ongoing motion while OFF, zero/restored gain, and preservation of every
+tuning value across recreation. No Android device was connected; interactive
+control behavior, sensor re-registration, text entry, and reading comfort still
+require Pixel 8 validation.
 
 `app/src/test/java/com/steadyscreen/stabilization/StabilizationEngineTest.kt` uses
 synthetic quaternions and timestamps to cover stationary input, slow movement,
