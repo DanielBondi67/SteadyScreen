@@ -75,6 +75,8 @@ Important code is under `app/src/main/java/com/steadyscreen/`:
 - `render/StabilizedContent.kt`: clipped, overscanned reading layer.
 - `settings/ReadingSettings.kt`: saved user choices and named-key encoding with default recovery.
 - `settings/ReadingSettingsStore.kt`: local Android preferences, separate from sensor processing.
+- `settings/TuningProfile.kt`, `ProfileStore.kt`, `ProfileJson.kt`: named snapshots, profile persistence, and versioned JSON.
+- `ui/TuningProfiles.kt`: profile selection/editing, clipboard export, and document import/export.
 
 Samples, controls, and frame reads run serially on the main thread. Sensor callbacks
 perform only a small amount of math and do not write Compose state. Transform state
@@ -138,6 +140,70 @@ diagnostics, and apply custom text. Close/force-stop and reopen the app, then ve
 all choices return. Repeat after rotation and a phone restart. Reset tuning defaults,
 reopen, and verify defaults remain while your text and ON/OFF choice are preserved.
 Finally choose the original sample, reopen, and verify it remains selected.
+
+## Profiles and export
+
+Open **Tune settings** to manage profiles above the tuning sliders:
+
+1. Adjust tuning, then choose **Save as new**. Give the snapshot a unique name and,
+   optionally, notes about test conditions (for example, “bus, window seat, less lag”).
+2. Use **Select profile** to apply a saved snapshot immediately. All twelve tuning
+   values are included. ON/OFF, reading text, and diagnostics visibility stay as they are.
+3. Further tuning edits mark the selected profile **(modified)**. The active settings
+   still save automatically, but a saved profile changes only through **Update profile**.
+   That action also lets you rename it or edit notes. **Save as new** keeps both versions.
+4. **Delete profile** asks for confirmation and removes the snapshot while keeping
+   current tuning. **Reset defaults** resets current tuning and preserves saved profiles.
+
+Profiles and the last selected profile ID are stored locally in a separate
+`tuning_profiles` preference file. Names are case-insensitively unique (up to 80
+characters), notes allow 2,000 characters, and the library holds up to 100 profiles.
+Saved profiles survive app restarts. If the library cannot be read, the app reports
+it and offers an explicit confirmed reset instead of silently overwriting it.
+
+**Export current tuning** captures the current live values, including unsaved changes
+to a selected profile. It uses that profile's name/notes, or “Current settings” if no
+profile is selected:
+
+- **Copy JSON** puts readable JSON on the clipboard for documentation, issue reports,
+  or prompts. Paste it alongside your observed motion, comfort, and test conditions.
+- **Export file** opens Android's document picker to save a UTF-8 `.json` file. Choose
+  a profile first to export that snapshot; repeat for other profiles as needed.
+- **Import file** opens an exported document; **Paste JSON** accepts copied JSON.
+  Both validate it, then show the name, notes, and all tuning values for review.
+  **Save and apply** creates a new local profile and applies its values. If the name
+  already exists, choose another name; import never silently overwrites a profile.
+
+Exports contain `format: "steadyscreen-tuning-profile"`, integer `version: 1`, `name`,
+`notes`, a `units` object, and all twelve numeric fields in `config`. See
+[example-tuning-profile.json](docs/example-tuning-profile.json) for a ready-to-import
+example using the experimental defaults. IDs are local and are regenerated on import.
+The export contains tuning only: no reading text, sensor samples, or app-private IDs.
+
+Import accepts one profile at a time, up to 32 KiB. It rejects missing/wrong-type fields,
+unsupported versions/formats, changed units, nonfinite or invalid values, fractional
+integer fields, and values outside the current tuning UI ranges. Unknown extra JSON
+fields are ignored. Invalid imports and cancellation leave active settings and saved
+profiles untouched. File I/O runs on the IO dispatcher; cancellations and I/O errors
+are handled without requesting broad storage permissions. The app uses Android's
+[document activity results](https://developer.android.com/develop/ui/compose/libraries)
+and does not send settings automatically to other apps or services.
+
+For a reusable prompt, copy the JSON and add your question, for example:
+
+> These are my SteadyScreen tuning values. On a bus, the text trails after bumps.
+> Explain which parameters to adjust first and suggest a small controlled ON/OFF test.
+
+Local automatic backups and device transfer remain disabled for preferences. Exported
+files are independent documents you can keep or share yourself. Clearing app data or
+uninstalling removes the local library; retain exports if you want to restore profiles.
+
+Pixel 8 checks: save two visibly different profiles, select each, edit one, and verify
+**(modified)** appears without altering its saved snapshot. Test update/rename, duplicate
+names, confirmed deletion, and reset; then close/reopen the app. Copy JSON and export a
+file, import them under new names, and verify every field. Test cancellation, invalid
+JSON, an oversized file, and rotation while a picker is open. Verify importing a profile
+keeps reading text and ON/OFF, and repeat a controlled pitch comparison.
 
 ## Default tuning
 
@@ -212,6 +278,23 @@ sensor rate, perceived improvement/worsening, and whether output hits its clamp.
 No physical validation result is claimed by this repository.
 
 ## Tests and limitations
+
+Profile verification (2026-09-08): unit tests, debug build, and lint passed with JDK 21
+and SDK 36. There are 38 tests per debug/release variant (19 engine, 7 reading settings,
+and 12 profiles/export). Lint reports zero errors and one existing Gradle-version advisory.
+Profile tests cover storage/reselection, immutable snapshots, update/delete, duplicate
+names, all-parameter JSON round trips, Unicode/precision, slider boundaries, invalid
+imports, unsupported versions/units, file-size limits, and unreadable stored data.
+Android supplies `org.json` in production; a test-only `org.json:json:20240303` dependency
+runs the format tests on the JVM. No runtime dependency was added. Actual clipboard,
+file-picker, and device lifecycle flows still need the Pixel 8 checks above.
+
+The local Android Studio SDK setting pointed at an SDK without Platform 36. Verification
+used an isolated temporary Gradle project root linked to these sources and configured
+with the installed Platform 36 SDK; the repository's `local.properties` was preserved.
+The command was `./gradlew -p /tmp/steadyscreen-profile-build test assembleDebug lint
+--offline --no-watch-fs`, with the configured development Gradle cache. On a machine
+with SDK 36 configured normally, use the standard build commands above.
 
 Persistence verification (2026-09-07): `./gradlew test assembleDebug lint --offline --no-watch-fs`
 passed with JDK 21 and SDK 36. All 26 tests passed in each debug/release variant;
