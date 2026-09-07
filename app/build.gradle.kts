@@ -32,4 +32,6 @@ dependencies {
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.compose.material3:material3")
     testImplementation("junit:junit:4.13.2")
+    // Android supplies org.json at runtime; use its JVM counterpart for profile format tests.
+    testImplementation("org.json:json:20240303")
 }
