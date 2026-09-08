@@ -2,6 +2,10 @@ package com.steadyscreen.stabilization
 
 /** Experimental values in radians, seconds and physical screen pixels (not dp). */
 data class StabilizationConfig(
+    val accelerationNoiseFloor: Double = 0.15,
+    val accelerationFullScale: Double = 3.0,
+    val motionAttackSeconds: Double = 0.015,
+    val motionReleaseSeconds: Double = 0.25,
     val horizontalGain: Float = 0.4f,
     val maxHorizontalTranslationPx: Float = 60f,
     val horizontalDeadZoneRadians: Double = 0.0015,
@@ -20,6 +24,10 @@ data class StabilizationConfig(
     val debugIntervalNanos: Long = 200_000_000L,
 ) {
     init {
+        require(accelerationNoiseFloor.isFinite() && accelerationNoiseFloor >= 0.0)
+        require(accelerationFullScale.isFinite() && accelerationFullScale > accelerationNoiseFloor)
+        require(motionAttackSeconds.isFinite() && motionAttackSeconds > 0.0)
+        require(motionReleaseSeconds.isFinite() && motionReleaseSeconds > 0.0)
         require(horizontalGain.isFinite() && horizontalGain >= 0f)
         require(maxHorizontalTranslationPx.isFinite() && maxHorizontalTranslationPx > 0f)
         require(horizontalDeadZoneRadians.isFinite() && horizontalDeadZoneRadians >= 0.0)

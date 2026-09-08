@@ -6,6 +6,13 @@ import kotlin.math.sign
 
 /** Pure Kotlin, single-thread confined. Sensor timestamps and frame time use elapsed realtime. */
 class StabilizationEngine(var config: StabilizationConfig = StabilizationConfig()) {
+    val bump = MotionEnvelope()
+
+    fun onAcceleration(time: Long, x: Double, y: Double, z: Double) {
+        bump.sample(time, vectorMagnitude(x, y, z), config.accelerationNoiseFloor,
+            config.accelerationFullScale, config)
+    }
+
     var enabled: Boolean = true
     private var reference: Quaternion? = null
     private var lastSampleNanos: Long? = null
@@ -107,6 +114,7 @@ class StabilizationEngine(var config: StabilizationConfig = StabilizationConfig(
     }
 
     fun reset() {
+        bump.reset()
         reference = null
         lastSampleNanos = null
         lastFrameNanos = null

@@ -25,7 +25,9 @@ data class DebugInfo(
 class ReadingController(context: Context, displayRotation: () -> Int) {
     val engine = StabilizationEngine()
     private val sensors = AndroidSensorProvider(context.applicationContext,
-        engine.config.sensorSamplingPeriodUs) { time, q ->
+        engine.config.sensorSamplingPeriodUs,
+        onAcceleration = { time, x, y, z -> engine.onAcceleration(time, x.toDouble(), y.toDouble(), z.toDouble()) },
+    ) { time, q ->
         engine.onOrientation(time, q, displayRotation())
     }
     private var lastDebugNanos = 0L
