@@ -7,6 +7,22 @@ import kotlin.math.sign
 /** Pure Kotlin, single-thread confined. Sensor timestamps and frame time use elapsed realtime. */
 class StabilizationEngine(var config: StabilizationConfig = StabilizationConfig()) {
     val bump = MotionEnvelope()
+    private val rotationShake = MotionEnvelope()
+    private val adaptive = AdaptiveStrength()
+    var bumpIntensity = 0.0
+        private set
+    var rotationalShake = 0.0
+        private set
+    var shakeScore = 0.0
+        private set
+    var adaptiveMultiplier = 1.0
+        private set
+    val effectiveVerticalGain get() = config.gain * adaptiveMultiplier
+    val effectiveHorizontalGain get() = config.horizontalGain * adaptiveMultiplier
+
+    fun onGyroscope(time: Long, x: Double, y: Double, z: Double) {
+        rotationShake.sample(time, vectorMagnitude(x, y, z), config.gyroNoiseFloor, config.gyroFullScale, config)
+    }
 
     fun onAcceleration(time: Long, x: Double, y: Double, z: Double) {
         bump.sample(time, vectorMagnitude(x, y, z), config.accelerationNoiseFloor,
@@ -93,14 +109,20 @@ class StabilizationEngine(var config: StabilizationConfig = StabilizationConfig(
         val previous = lastFrameNanos
         if (previous != null && nowNanos <= previous) return StabilizationTransform(translationX = outputX, translationY = outputY)
         lastFrameNanos = nowNanos
+        val frameDt = if (previous == null) 0.0 else (nowNanos - previous) * 1e-9
+        bumpIntensity = bump.valueAt(nowNanos, config)
+        rotationalShake = rotationShake.valueAt(nowNanos, config)
+        shakeScore = (config.gyroShakeWeight * rotationalShake +
+            config.accelerationShakeWeight * bumpIntensity).coerceIn(0.0, 1.0)
+        adaptiveMultiplier = adaptive.update(shakeScore, frameDt, config)
         if (enabled && sensorsAvailable && hasFreshOrientation(nowNanos)) {
             // A continuous dead zone avoids a step at the threshold.
             val pitch = sign(smoothedPitch) * (abs(smoothedPitch) - config.deadZoneRadians).coerceAtLeast(0.0)
             val horizontal = sign(smoothedHorizontal) *
                 (abs(smoothedHorizontal) - config.horizontalDeadZoneRadians).coerceAtLeast(0.0)
-            outputX = (horizontal * config.pixelsPerRadian * config.horizontalGain *
+            outputX = (horizontal * config.pixelsPerRadian * effectiveHorizontalGain *
                 config.horizontalCompensationDirection).toFloat()
-            outputY = (pitch * config.pixelsPerRadian * config.gain * config.compensationDirection).toFloat()
+            outputY = (pitch * config.pixelsPerRadian * effectiveVerticalGain * config.compensationDirection).toFloat()
         } else {
             val dt = if (previous == null) 0.0 else (nowNanos - previous) * 1e-9
             outputX *= exp(-dt / config.returnTimeConstantSeconds).toFloat()
@@ -115,6 +137,12 @@ class StabilizationEngine(var config: StabilizationConfig = StabilizationConfig(
 
     fun reset() {
         bump.reset()
+        rotationShake.reset()
+        adaptive.reset()
+        bumpIntensity = 0.0
+        rotationalShake = 0.0
+        shakeScore = 0.0
+        adaptiveMultiplier = if (config.mode == StabilizationMode.Manual) 1.0 else config.adaptiveMinMultiplier
         reference = null
         lastSampleNanos = null
         lastFrameNanos = null

@@ -26,6 +26,7 @@ class ReadingController(context: Context, displayRotation: () -> Int) {
     val engine = StabilizationEngine()
     private val sensors = AndroidSensorProvider(context.applicationContext,
         engine.config.sensorSamplingPeriodUs,
+        onGyroscope = { time, x, y, z -> engine.onGyroscope(time, x.toDouble(), y.toDouble(), z.toDouble()) },
         onAcceleration = { time, x, y, z -> engine.onAcceleration(time, x.toDouble(), y.toDouble(), z.toDouble()) },
     ) { time, q ->
         engine.onOrientation(time, q, displayRotation())

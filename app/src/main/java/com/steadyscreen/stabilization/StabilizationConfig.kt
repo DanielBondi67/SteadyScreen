@@ -1,7 +1,18 @@
 package com.steadyscreen.stabilization
 
+enum class StabilizationMode { Manual, Adaptive }
+
 /** Experimental values in radians, seconds and physical screen pixels (not dp). */
 data class StabilizationConfig(
+    val mode: StabilizationMode = StabilizationMode.Manual,
+    val gyroNoiseFloor: Double = 0.02,
+    val gyroFullScale: Double = 1.5,
+    val gyroShakeWeight: Double = 0.6,
+    val accelerationShakeWeight: Double = 0.4,
+    val adaptiveMinMultiplier: Double = 0.25,
+    val adaptiveMaxMultiplier: Double = 1.5,
+    val adaptiveAttackSeconds: Double = 0.08,
+    val adaptiveReleaseSeconds: Double = 0.6,
     val accelerationNoiseFloor: Double = 0.15,
     val accelerationFullScale: Double = 3.0,
     val motionAttackSeconds: Double = 0.015,
@@ -24,6 +35,14 @@ data class StabilizationConfig(
     val debugIntervalNanos: Long = 200_000_000L,
 ) {
     init {
+        require(gyroNoiseFloor.isFinite() && gyroNoiseFloor >= 0.0)
+        require(gyroFullScale.isFinite() && gyroFullScale > gyroNoiseFloor)
+        require(gyroShakeWeight.isFinite() && gyroShakeWeight in 0.0..1.0)
+        require(accelerationShakeWeight.isFinite() && accelerationShakeWeight in 0.0..1.0)
+        require(adaptiveMinMultiplier.isFinite() && adaptiveMinMultiplier >= 0.0)
+        require(adaptiveMaxMultiplier.isFinite() && adaptiveMaxMultiplier >= adaptiveMinMultiplier && adaptiveMaxMultiplier <= 4.0)
+        require(adaptiveAttackSeconds.isFinite() && adaptiveAttackSeconds > 0.0)
+        require(adaptiveReleaseSeconds.isFinite() && adaptiveReleaseSeconds > 0.0)
         require(accelerationNoiseFloor.isFinite() && accelerationNoiseFloor >= 0.0)
         require(accelerationFullScale.isFinite() && accelerationFullScale > accelerationNoiseFloor)
         require(motionAttackSeconds.isFinite() && motionAttackSeconds > 0.0)
