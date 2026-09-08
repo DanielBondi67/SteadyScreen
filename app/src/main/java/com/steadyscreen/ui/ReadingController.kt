@@ -5,6 +5,7 @@ import android.os.SystemClock
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import com.steadyscreen.render.FrameTiming
 import com.steadyscreen.sensor.AndroidSensorProvider
 import com.steadyscreen.stabilization.StabilizationConfig
 import com.steadyscreen.stabilization.StabilizationEngine
@@ -17,6 +18,7 @@ data class DebugInfo(
     val gyroZ: Float = 0f,
     val rawY: Float = 0f,
     val finalY: Float = 0f,
+    val renderHz: Double = 0.0,
     val orientationHz: Double = 0.0,
     val status: String = "Waiting for sensors",
 )
@@ -31,6 +33,7 @@ class ReadingController(context: Context, displayRotation: () -> Int) {
     ) { time, q ->
         engine.onOrientation(time, q, displayRotation())
     }
+    private val frameTiming = FrameTiming()
     private var lastDebugNanos = 0L
     var transform by mutableStateOf(StabilizationTransform())
         private set
@@ -46,15 +49,20 @@ class ReadingController(context: Context, displayRotation: () -> Int) {
 
     fun start() {
         engine.reset()
+        frameTiming.reset()
         lastDebugNanos = 0L
         sensors.start()
     }
 
-    fun stop() = sensors.stop()
+    fun stop() {
+        sensors.stop()
+        transform = StabilizationTransform()
+    }
 
-    fun onFrame() {
+    fun onFrame(frameNanos: Long) {
         // SensorEvent.timestamp uses elapsedRealtimeNanos; Compose's frame clock need not.
         val now = SystemClock.elapsedRealtimeNanos()
+        if (!frameTiming.accept(frameNanos, now)) return
         val gyroFresh = sensors.gyroTimestampNanos > 0 && now >= sensors.gyroTimestampNanos &&
             (now - sensors.gyroTimestampNanos) * 1e-9 <= engine.config.sensorTimeoutSeconds
         val orientationFresh = engine.hasFreshOrientation(now)
@@ -66,6 +74,7 @@ class ReadingController(context: Context, displayRotation: () -> Int) {
                 pitchDegrees = Math.toDegrees(engine.relativePitchRadians),
                 gyroX = sensors.gyroX, gyroY = sensors.gyroY, gyroZ = sensors.gyroZ,
                 rawY = engine.rawTranslationY, finalY = transform.translationY,
+                renderHz = frameTiming.framesPerSecond,
                 orientationHz = if (orientationFresh) engine.orientationHz else 0.0,
                 status = when {
                     !sensors.running -> sensors.status

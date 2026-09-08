@@ -69,12 +69,14 @@ fun ReadingTestScreen() {
     val currentEnabled = enabled
     val currentConfig = config
     SideEffect { controller.configure(currentEnabled, currentConfig) }
+    var resumed by remember { mutableStateOf(false) }
     LifecycleResumeEffect(controller) {
         controller.start()
-        onPauseOrDispose { controller.stop() }
+        resumed = true
+        onPauseOrDispose { resumed = false; controller.stop() }
     }
-    LaunchedEffect(controller) {
-        while (isActive) withFrameNanos { controller.onFrame() }
+    LaunchedEffect(controller, resumed) {
+        if (resumed) while (isActive) withFrameNanos { controller.onFrame(it) }
     }
     if (showTuning) {
         TuningDialog(config, { updateSettings(settings.copy(config = it)) }, { showTuning = false })
