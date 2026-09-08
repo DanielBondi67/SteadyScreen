@@ -6,13 +6,22 @@ import java.lang.reflect.Proxy
 /** In-memory preference file for JVM tests; changes become visible only through Editor.apply(). */
 internal class PreferenceFile(initial: Map<String, Any?> = emptyMap()) {
     private val saved = initial.toMutableMap()
+    private val listeners = mutableListOf<Pair<SharedPreferences, SharedPreferences.OnSharedPreferenceChangeListener>>()
     var applyCount = 0
         private set
 
-    fun open(): SharedPreferences = proxy(SharedPreferences::class.java) { _, method, _ ->
+    fun open(): SharedPreferences = proxy(SharedPreferences::class.java) { preferences, method, args ->
         when (method) {
             "getAll" -> saved.toMap()
             "edit" -> editor()
+            "registerOnSharedPreferenceChangeListener" -> {
+                listeners.add((preferences as SharedPreferences) to (args!![0] as SharedPreferences.OnSharedPreferenceChangeListener))
+                null
+            }
+            "unregisterOnSharedPreferenceChangeListener" -> {
+                listeners.removeAll { it.second === args!![0] }
+                null
+            }
             else -> error("Unexpected preference method: $method")
         }
     }
@@ -26,8 +35,12 @@ internal class PreferenceFile(initial: Map<String, Any?> = emptyMap()) {
                     editor
                 }
                 "apply" -> {
+                    val changed = pending.keys.filter { saved[it] != pending[it] }
                     saved.putAll(pending)
                     applyCount++
+                    changed.forEach { key -> listeners.toList().forEach { (prefs, listener) ->
+                        listener.onSharedPreferenceChanged(prefs, key)
+                    } }
                     null
                 }
                 else -> error("Unexpected editor method: $method")

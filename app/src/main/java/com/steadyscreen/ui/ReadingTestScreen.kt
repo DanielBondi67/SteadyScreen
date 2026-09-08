@@ -21,6 +21,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
@@ -56,8 +57,12 @@ fun ReadingTestScreen() {
     val settingsStore = remember(context) { ReadingSettingsStore(context) }
     var settings by remember(settingsStore) { mutableStateOf(settingsStore.load()) }
     val updateSettings: (ReadingSettings) -> Unit = {
-        settings = it
-        settingsStore.save(it)
+        settingsStore.saveUserChoices(it)
+        settings = settingsStore.load()
+    }
+    DisposableEffect(settingsStore) {
+        val unsubscribe = settingsStore.observeEnabled { settings = settings.copy(enabled = it) }
+        onDispose { unsubscribe() }
     }
     val enabled = settings.enabled
     val config = settings.config
@@ -95,7 +100,7 @@ fun ReadingTestScreen() {
                 Row(Modifier.fillMaxSize()) {
                     Column(Modifier.width(300.dp).verticalScroll(rememberScrollState())) {
                         Controls(enabled, config.gain,
-                            { updateSettings(settings.copy(enabled = it)) },
+                            { settingsStore.setEnabled(it) },
                             { updateSettings(settings.copy(config = settings.config.copy(gain = it))) },
                             onTuning = { showTuning = true }, onText = { showTextEditor = true })
                         DebugPanel(controller, enabled, showDebug) {
@@ -107,7 +112,7 @@ fun ReadingTestScreen() {
             } else {
                 Column(Modifier.fillMaxSize()) {
                     Controls(enabled, config.gain,
-                        { updateSettings(settings.copy(enabled = it)) },
+                        { settingsStore.setEnabled(it) },
                         { updateSettings(settings.copy(config = settings.config.copy(gain = it))) },
                         onTuning = { showTuning = true }, onText = { showTextEditor = true })
                     HorizontalDivider()
