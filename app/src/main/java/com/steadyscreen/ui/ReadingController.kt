@@ -5,6 +5,7 @@ import android.os.SystemClock
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import com.steadyscreen.render.OverscanGeometry
 import com.steadyscreen.render.FrameTiming
 import com.steadyscreen.sensor.AndroidSensorProvider
 import com.steadyscreen.stabilization.StabilizationConfig
@@ -33,6 +34,17 @@ class ReadingController(context: Context, displayRotation: () -> Int) {
     ) { time, q ->
         engine.onOrientation(time, q, displayRotation())
     }
+    private var viewportWidth = 0
+    private var viewportHeight = 0
+    var overscan by mutableStateOf(OverscanGeometry.forViewport(0, 0, engine.config))
+        private set
+
+    fun setViewport(width: Int, height: Int) {
+        viewportWidth = width
+        viewportHeight = height
+        overscan = OverscanGeometry.forViewport(width, height, engine.config)
+    }
+
     private val frameTiming = FrameTiming()
     private var lastDebugNanos = 0L
     var transform by mutableStateOf(StabilizationTransform())
@@ -44,6 +56,7 @@ class ReadingController(context: Context, displayRotation: () -> Int) {
         if (engine.enabled != enabled || engine.config != config) lastDebugNanos = 0L
         engine.enabled = enabled
         engine.config = config
+        setViewport(viewportWidth, viewportHeight)
         sensors.setSamplingPeriod(config.sensorSamplingPeriodUs)
     }
 
@@ -67,7 +80,7 @@ class ReadingController(context: Context, displayRotation: () -> Int) {
             (now - sensors.gyroTimestampNanos) * 1e-9 <= engine.config.sensorTimeoutSeconds
         val orientationFresh = engine.hasFreshOrientation(now)
         val available = sensors.running && gyroFresh && orientationFresh
-        transform = engine.frame(now, available, frameTiming.periodSeconds)
+        transform = overscan.constrain(engine.frame(now, available, frameTiming.periodSeconds))
         if (now - lastDebugNanos >= engine.config.debugIntervalNanos) {
             lastDebugNanos = now
             debug = DebugInfo(

@@ -34,12 +34,14 @@ data class StabilizationConfig(
     val returnTimeConstantSeconds: Double = 0.08,
     val pixelsPerRadian: Float = 1_000f,
     val compensationDirection: Float = -1f,
+    val maxOverscanScale: Float = 1.3f,
     val overscanScale: Float = 1.08f,
     val sensorTimeoutSeconds: Double = 0.25,
     val sensorSamplingPeriodUs: Int = 5_000,
     val debugIntervalNanos: Long = 200_000_000L,
 ) {
     init {
+        require(maxOverscanScale.isFinite() && maxOverscanScale in 1f..2f)
         require(predictionHorizonSeconds.isFinite() && predictionHorizonSeconds >= 0.0)
         require(maxPredictionHorizonSeconds.isFinite() && maxPredictionHorizonSeconds in 0.0..0.05)
         require(predictionGyroTimeoutSeconds.isFinite() && predictionGyroTimeoutSeconds > 0.0 && predictionGyroTimeoutSeconds <= 0.25)

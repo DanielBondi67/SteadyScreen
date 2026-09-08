@@ -33,6 +33,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.contentDescription
@@ -101,7 +102,7 @@ fun ReadingTestScreen() {
                             updateSettings(settings.copy(showDebug = !settings.showDebug))
                         }
                     }
-                    ReadingText(controller, config.overscanScale, customText, Modifier.weight(1f).fillMaxSize())
+                    ReadingText(controller, customText, Modifier.weight(1f).fillMaxSize())
                 }
             } else {
                 Column(Modifier.fillMaxSize()) {
@@ -110,7 +111,7 @@ fun ReadingTestScreen() {
                         { updateSettings(settings.copy(config = settings.config.copy(gain = it))) },
                         onTuning = { showTuning = true }, onText = { showTextEditor = true })
                     HorizontalDivider()
-                    ReadingText(controller, config.overscanScale, customText, Modifier.weight(1f).fillMaxWidth())
+                    ReadingText(controller, customText, Modifier.weight(1f).fillMaxWidth())
                     HorizontalDivider()
                     DebugPanel(controller, enabled, showDebug) {
                         updateSettings(settings.copy(showDebug = !settings.showDebug))
@@ -170,9 +171,10 @@ private fun DebugPanel(controller: ReadingController, enabled: Boolean, expanded
 }
 
 @Composable
-private fun ReadingText(controller: ReadingController, overscanScale: Float, customText: String, modifier: Modifier) {
+private fun ReadingText(controller: ReadingController, customText: String, modifier: Modifier) {
     val paragraphs = remember(customText) { customText.split(Regex("\\r?\\n\\s*\\r?\\n")) }
-    StabilizedContent(transform = { controller.transform }, overscanScale = overscanScale, modifier = modifier) {
+    StabilizedContent(transform = { controller.transform }, overscanScale = controller.overscan.scale,
+        modifier = modifier.onSizeChanged { controller.setViewport(it.width, it.height) }) {
         if (customText.isNotEmpty()) {
             // Replacing the document starts at its beginning; frame transforms never lay it out again.
             key(customText) {
