@@ -4,6 +4,11 @@ enum class StabilizationMode { Manual, Adaptive }
 
 /** Experimental values in radians, seconds and physical screen pixels (not dp). */
 data class StabilizationConfig(
+    val predictionEnabled: Boolean = false,
+    val predictionHorizonSeconds: Double = 0.012,
+    val maxPredictionHorizonSeconds: Double = 0.02,
+    val predictionGyroTimeoutSeconds: Double = 0.05,
+    val maxPredictionAngularVelocity: Double = 4.0,
     val mode: StabilizationMode = StabilizationMode.Manual,
     val gyroNoiseFloor: Double = 0.02,
     val gyroFullScale: Double = 1.5,
@@ -35,6 +40,10 @@ data class StabilizationConfig(
     val debugIntervalNanos: Long = 200_000_000L,
 ) {
     init {
+        require(predictionHorizonSeconds.isFinite() && predictionHorizonSeconds >= 0.0)
+        require(maxPredictionHorizonSeconds.isFinite() && maxPredictionHorizonSeconds in 0.0..0.05)
+        require(predictionGyroTimeoutSeconds.isFinite() && predictionGyroTimeoutSeconds > 0.0 && predictionGyroTimeoutSeconds <= 0.25)
+        require(maxPredictionAngularVelocity.isFinite() && maxPredictionAngularVelocity > 0.0 && maxPredictionAngularVelocity <= 20.0)
         require(gyroNoiseFloor.isFinite() && gyroNoiseFloor >= 0.0)
         require(gyroFullScale.isFinite() && gyroFullScale > gyroNoiseFloor)
         require(gyroShakeWeight.isFinite() && gyroShakeWeight in 0.0..1.0)

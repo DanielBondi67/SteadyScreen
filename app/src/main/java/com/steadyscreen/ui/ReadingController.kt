@@ -67,7 +67,7 @@ class ReadingController(context: Context, displayRotation: () -> Int) {
             (now - sensors.gyroTimestampNanos) * 1e-9 <= engine.config.sensorTimeoutSeconds
         val orientationFresh = engine.hasFreshOrientation(now)
         val available = sensors.running && gyroFresh && orientationFresh
-        transform = engine.frame(now, available)
+        transform = engine.frame(now, available, frameTiming.periodSeconds)
         if (now - lastDebugNanos >= engine.config.debugIntervalNanos) {
             lastDebugNanos = now
             debug = DebugInfo(

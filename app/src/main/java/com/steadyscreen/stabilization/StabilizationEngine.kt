@@ -8,6 +8,9 @@ import kotlin.math.sign
 class StabilizationEngine(var config: StabilizationConfig = StabilizationConfig()) {
     val bump = MotionEnvelope()
     private val rotationShake = MotionEnvelope()
+    private val predictor = OrientationPredictor()
+    val effectivePredictionHorizonSeconds get() = predictor.effectiveHorizonSeconds
+    private var latestOrientation: Quaternion? = null
     private val adaptive = AdaptiveStrength()
     var bumpIntensity = 0.0
         private set
@@ -21,6 +24,7 @@ class StabilizationEngine(var config: StabilizationConfig = StabilizationConfig(
     val effectiveHorizontalGain get() = config.horizontalGain * adaptiveMultiplier
 
     fun onGyroscope(time: Long, x: Double, y: Double, z: Double) {
+        predictor.onGyroscope(time, x, y, z)
         rotationShake.sample(time, vectorMagnitude(x, y, z), config.gyroNoiseFloor, config.gyroFullScale, config)
     }
 
@@ -67,6 +71,7 @@ class StabilizationEngine(var config: StabilizationConfig = StabilizationConfig(
             screenBasis = Quaternion.screenBasis(displayQuarterTurns)
         }
         val current = unit * screenBasis
+        latestOrientation = current
         val dt = if (previous == null) 0.0 else (timestampNanos - previous) * 1e-9
         lastSampleNanos = timestampNanos
         if (reference == null || rotationChanged || dt > config.sensorTimeoutSeconds) {
@@ -105,7 +110,7 @@ class StabilizationEngine(var config: StabilizationConfig = StabilizationConfig(
     }
 
     /** Call once per display frame; no Compose state changes are required on sensor events. */
-    fun frame(nowNanos: Long, sensorsAvailable: Boolean = true): StabilizationTransform {
+    fun frame(nowNanos: Long, sensorsAvailable: Boolean = true, framePeriodSeconds: Double = 0.0): StabilizationTransform {
         val previous = lastFrameNanos
         if (previous != null && nowNanos <= previous) return StabilizationTransform(translationX = outputX, translationY = outputY)
         lastFrameNanos = nowNanos
@@ -115,11 +120,25 @@ class StabilizationEngine(var config: StabilizationConfig = StabilizationConfig(
         shakeScore = (config.gyroShakeWeight * rotationalShake +
             config.accelerationShakeWeight * bumpIntensity).coerceIn(0.0, 1.0)
         adaptiveMultiplier = adaptive.update(shakeScore, frameDt, config)
+        predictor.clearHorizon()
         if (enabled && sensorsAvailable && hasFreshOrientation(nowNanos)) {
+            var renderPitch = smoothedPitch
+            var renderHorizontal = smoothedHorizontal
+            if (config.predictionEnabled) {
+                val current = latestOrientation!!
+                val predicted = predictor.predict(current, screenBasis, lastSampleNanos!!,
+                    nowNanos, framePeriodSeconds, config)
+                val relativeNow = reference!!.inverseUnit() * current
+                val relativePredicted = reference!!.inverseUnit() * predicted
+                // Add only the short-horizon angular increment to the validated filter output.
+                // Neither the moving reference nor sensor smoothing receives predicted samples.
+                renderPitch += wrappedAngle(relativePredicted.pitchRadians() - relativeNow.pitchRadians())
+                renderHorizontal += relativePredicted.horizontalRadians() - relativeNow.horizontalRadians()
+            }
             // A continuous dead zone avoids a step at the threshold.
-            val pitch = sign(smoothedPitch) * (abs(smoothedPitch) - config.deadZoneRadians).coerceAtLeast(0.0)
-            val horizontal = sign(smoothedHorizontal) *
-                (abs(smoothedHorizontal) - config.horizontalDeadZoneRadians).coerceAtLeast(0.0)
+            val pitch = sign(renderPitch) * (abs(renderPitch) - config.deadZoneRadians).coerceAtLeast(0.0)
+            val horizontal = sign(renderHorizontal) *
+                (abs(renderHorizontal) - config.horizontalDeadZoneRadians).coerceAtLeast(0.0)
             outputX = (horizontal * config.pixelsPerRadian * effectiveHorizontalGain *
                 config.horizontalCompensationDirection).toFloat()
             outputY = (pitch * config.pixelsPerRadian * effectiveVerticalGain * config.compensationDirection).toFloat()
@@ -136,6 +155,8 @@ class StabilizationEngine(var config: StabilizationConfig = StabilizationConfig(
     }
 
     fun reset() {
+        predictor.reset()
+        latestOrientation = null
         bump.reset()
         rotationShake.reset()
         adaptive.reset()
@@ -154,6 +175,8 @@ class StabilizationEngine(var config: StabilizationConfig = StabilizationConfig(
         relativeHorizontalRadians = 0.0
         orientationHz = 0.0
     }
+
+    private fun wrappedAngle(angle: Double): Double = kotlin.math.atan2(kotlin.math.sin(angle), kotlin.math.cos(angle))
 
     private fun alpha(dt: Double, tau: Double) = if (tau == 0.0) 1.0 else 1 - exp(-dt / tau)
 }
