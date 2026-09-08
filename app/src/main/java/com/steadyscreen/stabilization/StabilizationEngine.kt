@@ -13,12 +13,21 @@ class StabilizationEngine(var config: StabilizationConfig = StabilizationConfig(
     private var screenRotation = 0
     private var screenBasis = Quaternion.Identity
     private var smoothedPitch = 0.0
+    private var smoothedHorizontal = 0.0
+    private var outputX = 0f
     private var outputY = 0f
 
     var relativePitchRadians: Double = 0.0
         private set
     var orientationHz: Double = 0.0
         private set
+
+    var relativeHorizontalRadians: Double = 0.0
+        private set
+
+    val rawTranslationX: Float
+        get() = (relativeHorizontalRadians * config.pixelsPerRadian * config.horizontalGain *
+            config.horizontalCompensationDirection).toFloat()
 
     val rawTranslationY: Float
         get() = (relativePitchRadians * config.pixelsPerRadian * config.gain *
@@ -40,7 +49,9 @@ class StabilizationEngine(var config: StabilizationConfig = StabilizationConfig(
         if (reference == null || rotationChanged || dt > config.sensorTimeoutSeconds) {
             reference = current
             relativePitchRadians = 0.0
+            relativeHorizontalRadians = 0.0
             smoothedPitch = 0.0
+            smoothedHorizontal = 0.0
             orientationHz = 0.0
             return
         }
@@ -49,14 +60,19 @@ class StabilizationEngine(var config: StabilizationConfig = StabilizationConfig(
             orientationHz + alpha(dt, 0.5) * (hz - orientationHz)
 
         reference = reference!!.follow(current, alpha(dt, config.referenceTimeConstantSeconds))
-        relativePitchRadians = (reference!!.inverseUnit() * current).pitchRadians()
+        val relative = reference!!.inverseUnit() * current
+        relativePitchRadians = relative.pitchRadians()
+        relativeHorizontalRadians = relative.horizontalRadians()
         if (!enabled) {
             // OFF is also a new baseline: re-enabling does not replay motion made while OFF.
             reference = current
             smoothedPitch = 0.0
+            smoothedHorizontal = 0.0
         } else {
             smoothedPitch += alpha(dt, config.smoothingTimeConstantSeconds) *
                 (relativePitchRadians - smoothedPitch)
+            smoothedHorizontal += alpha(dt, config.smoothingTimeConstantSeconds) *
+                (relativeHorizontalRadians - smoothedHorizontal)
         }
     }
 
@@ -68,19 +84,26 @@ class StabilizationEngine(var config: StabilizationConfig = StabilizationConfig(
     /** Call once per display frame; no Compose state changes are required on sensor events. */
     fun frame(nowNanos: Long, sensorsAvailable: Boolean = true): StabilizationTransform {
         val previous = lastFrameNanos
-        if (previous != null && nowNanos <= previous) return StabilizationTransform(translationY = outputY)
+        if (previous != null && nowNanos <= previous) return StabilizationTransform(translationX = outputX, translationY = outputY)
         lastFrameNanos = nowNanos
         if (enabled && sensorsAvailable && hasFreshOrientation(nowNanos)) {
             // A continuous dead zone avoids a step at the threshold.
             val pitch = sign(smoothedPitch) * (abs(smoothedPitch) - config.deadZoneRadians).coerceAtLeast(0.0)
+            val horizontal = sign(smoothedHorizontal) *
+                (abs(smoothedHorizontal) - config.horizontalDeadZoneRadians).coerceAtLeast(0.0)
+            outputX = (horizontal * config.pixelsPerRadian * config.horizontalGain *
+                config.horizontalCompensationDirection).toFloat()
             outputY = (pitch * config.pixelsPerRadian * config.gain * config.compensationDirection).toFloat()
         } else {
             val dt = if (previous == null) 0.0 else (nowNanos - previous) * 1e-9
+            outputX *= exp(-dt / config.returnTimeConstantSeconds).toFloat()
+            if (abs(outputX) < 0.01f) outputX = 0f
             outputY *= exp(-dt / config.returnTimeConstantSeconds).toFloat()
             if (abs(outputY) < 0.01f) outputY = 0f
         }
+        outputX = outputX.coerceIn(-config.maxHorizontalTranslationPx, config.maxHorizontalTranslationPx)
         outputY = outputY.coerceIn(-config.maxVerticalTranslationPx, config.maxVerticalTranslationPx)
-        return StabilizationTransform(translationY = outputY)
+        return StabilizationTransform(translationX = outputX, translationY = outputY)
     }
 
     fun reset() {
@@ -90,6 +113,9 @@ class StabilizationEngine(var config: StabilizationConfig = StabilizationConfig(
         relativePitchRadians = 0.0
         smoothedPitch = 0.0
         outputY = 0f
+        outputX = 0f
+        smoothedHorizontal = 0.0
+        relativeHorizontalRadians = 0.0
         orientationHz = 0.0
     }
 

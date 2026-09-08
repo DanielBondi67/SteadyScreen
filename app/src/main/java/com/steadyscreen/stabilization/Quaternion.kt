@@ -1,5 +1,6 @@
 package com.steadyscreen.stabilization
 
+import kotlin.math.asin
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.sin
@@ -33,6 +34,9 @@ data class Quaternion(val w: Double, val x: Double, val y: Double, val z: Double
 
     // Rotation about the display's horizontal X axis, in the relative reference frame.
     fun pitchRadians(): Double = atan2(2 * (w * x + y * z), 1 - 2 * (x * x + y * y))
+
+    // Y-axis angle of the same relative quaternion, not world-heading/compass yaw.
+    fun horizontalRadians(): Double = asin((2 * (w * y - z * x)).coerceIn(-1.0, 1.0))
 
     companion object {
         val Identity = Quaternion(1.0, 0.0, 0.0, 0.0)

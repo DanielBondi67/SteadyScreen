@@ -2,6 +2,10 @@ package com.steadyscreen.stabilization
 
 /** Experimental values in radians, seconds and physical screen pixels (not dp). */
 data class StabilizationConfig(
+    val horizontalGain: Float = 0.4f,
+    val maxHorizontalTranslationPx: Float = 60f,
+    val horizontalDeadZoneRadians: Double = 0.0015,
+    val horizontalCompensationDirection: Float = 1f,
     val gain: Float = 0.6f,
     val maxVerticalTranslationPx: Float = 80f,
     val deadZoneRadians: Double = 0.0015,
@@ -16,6 +20,10 @@ data class StabilizationConfig(
     val debugIntervalNanos: Long = 200_000_000L,
 ) {
     init {
+        require(horizontalGain.isFinite() && horizontalGain >= 0f)
+        require(maxHorizontalTranslationPx.isFinite() && maxHorizontalTranslationPx > 0f)
+        require(horizontalDeadZoneRadians.isFinite() && horizontalDeadZoneRadians >= 0.0)
+        require(horizontalCompensationDirection == -1f || horizontalCompensationDirection == 1f)
         require(gain.isFinite() && gain >= 0f)
         require(maxVerticalTranslationPx.isFinite() && maxVerticalTranslationPx > 0f)
         require(deadZoneRadians.isFinite() && deadZoneRadians >= 0.0)

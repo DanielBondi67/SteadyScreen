@@ -22,7 +22,9 @@ fun StabilizedContent(
         Box(
             Modifier.fillMaxSize().graphicsLayer {
                 // Read frame state in the layer phase: no text recomposition or layout per frame.
-                translationY = transform().translationY
+                val frame = transform()
+                translationX = frame.translationX
+                translationY = frame.translationY
                 scaleX = overscanScale
                 scaleY = overscanScale
             },
