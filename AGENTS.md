@@ -1,120 +1,96 @@
-# AGENTS.md
+Read `AGENTS.md` completely before making any changes.
 
-# SteadyScreen
+MVP 1 of SteadyScreen has already been implemented and physically tested on a Pixel 8. The practical results were promising: the vertical IMU-driven counter-motion produced noticeable real-world stabilization.
 
-SteadyScreen is an Android quality-of-life application that uses the phone's IMU to reduce perceived screen jitter while reading in shaky environments such as cars, buses, trains, or while walking.
+We are now implementing MVP 2.
 
-The project is experimental. The first goal is not to build a complete product. The first goal is to determine whether IMU-driven counter-motion can measurably improve the reading experience on a physical Android device.
+Do not redesign the project from scratch. Treat the existing MVP 1 implementation and its physical behavior as the working baseline. Extend it carefully and preserve the existing vertical stabilization behavior.
 
-The primary test device is a Google Pixel 8.
+## Git workflow
 
----
+Before editing anything:
 
-## 1. Core Product Idea
+1. Inspect:
 
-The phone moves because of vibration or a bump.
+    * `git status`
+    * current branch
+    * recent Git history
+    * repository structure
+    * existing stabilization architecture
+    * existing tests
+    * existing tuning/configuration values
 
-The IMU detects the movement.
+2. Run the existing tests and debug build before making changes to establish a baseline.
 
-SteadyScreen estimates the short-term unwanted motion and moves rendered content in the opposite direction.
-
-Conceptually:
-
-```text
-physical phone motion
-        ↓
-IMU sensor data
-        ↓
-motion estimation
-        ↓
-filtering / stabilization
-        ↓
-inverse visual transform
-        ↓
-more stable perceived text
-```
-
-The initial MVP stabilizes only content rendered inside SteadyScreen itself.
-
-System-wide stabilization is explicitly deferred until the in-app algorithm has been proven useful.
-
----
-
-## 2. MVP 1 Objective
-
-The first MVP must answer:
-
-> Can counter-moving text driven by the Pixel 8 IMU noticeably reduce perceived reading jitter during a bumpy ride?
-
-The MVP is complete only when the application can be installed on a physical Android phone and tested interactively.
-
-For MVP 1, implement only vertical stabilization.
-
-Do not expand scope until the vertical prototype works.
-
----
-
-## 3. Target Platform
-
-Use:
-
-- Android
-- Kotlin
-- Jetpack Compose
-- Gradle Kotlin DSL
-- Android 14+ as the primary runtime target
-- Pixel 8 as the primary physical test device
-
-Use modern Android APIs and idiomatic Kotlin.
-
-Prefer Android SDK / Jetpack functionality over unnecessary third-party dependencies.
-
----
-
-## 4. Required Sensors
-
-Primary sensors:
-
-```kotlin
-Sensor.TYPE_GAME_ROTATION_VECTOR
-Sensor.TYPE_GYROSCOPE
-```
-
-Optional later sensor:
-
-```kotlin
-Sensor.TYPE_LINEAR_ACCELERATION
-```
-
-For MVP 1, the rotation vector and gyroscope are sufficient.
-
-Use the game rotation vector as the main orientation estimate.
-
-Use the gyroscope for:
-
-- high-frequency angular velocity
-- optional short-term prediction
-- debugging / instrumentation
-
-Do not manually integrate the gyroscope into an absolute orientation when Android already provides a fused rotation vector.
-
-Do not double-integrate accelerometer values into position in MVP 1.
-
----
-
-## 5. Stabilization Principle
-
-Maintain:
+3. Create and switch to:
 
 ```text
-Qcurrent
-Qreference
+feat/mvp2-adaptive-stabilization
 ```
 
-where:
+If that branch already exists, inspect its state instead of blindly creating another.
 
-- `Qcurrent` is the current orientation.
-- `Qreference` is a slowly changing baseline orientation.
+Do not work directly on `main`.
+
+You may autonomously create local commits.
+
+Do NOT:
+
+* push
+* merge into `main`
+* push directly to `main`
+* force-push
+* rewrite published history
+* delete remote branches
+* discard unrelated user changes
+
+I will physically test and review the branch before it is pushed/merged.
+
+---
+
+# MVP 2 objective
+
+Extend SteadyScreen from the successful vertical/manual prototype into a two-dimensional, adaptive, low-latency stabilizer.
+
+Implement exactly these MVP 2 features:
+
+1. horizontal stabilization
+2. accelerometer bump detection
+3. adaptive stabilization strength
+4. predictive rendering
+5. overscan zoom suitable for two-axis movement
+6. 60/120 Hz VSYNC/frame synchronization
+7. Android Quick Settings toggle
+
+Do NOT implement MVP 3/system-wide stabilization.
+
+---
+
+# Phase 0 — Understand and preserve MVP 1
+
+Before adding features:
+
+* inspect the current quaternion/orientation implementation
+* understand how `Qcurrent` and `Qreference` are maintained
+* understand how pitch becomes vertical screen translation
+* identify the current filter, dead zone, gain, clamp, and smoothing behavior
+* identify how Compose receives stabilization state
+* identify current sensor sampling behavior
+* identify current overscan implementation
+* run all existing tests
+* run the existing debug build
+
+Preserve the physically validated vertical compensation sign and baseline tuning unless a change is required for correctness.
+
+Do not rewrite working stabilization math merely because an alternative looks cleaner.
+
+If a refactor is necessary, add regression coverage first.
+
+---
+
+# Phase 1 — Horizontal stabilization
+
+Extend the existing relative-orientation calculation to produce horizontal stabilization.
 
 Conceptually:
 
@@ -122,646 +98,622 @@ Conceptually:
 Qdelta = inverse(Qreference) * Qcurrent
 ```
 
-Extract the relative pitch component needed for vertical compensation.
+The existing vertical path uses the appropriate relative pitch component.
 
-Map pitch to inverse vertical translation.
+Add the corresponding relative horizontal/yaw component and map it to inverse `translationX`.
 
-Conceptually:
+Requirements:
 
-```text
-device pitches upward
-        ↓
-screen content moves downward
-```
+* horizontal stabilization must use the same dynamic-reference concept as vertical stabilization
+* slow horizontal device movement must recenter naturally
+* rapid horizontal jitter must produce temporary counter-motion
+* horizontal dead zone must exist
+* horizontal gain must be independently configurable
+* horizontal output must be independently clamped
+* horizontal sign must be easy to invert during physical testing
+* vertical behavior must remain unchanged
+* expose horizontal raw/final values in debug information
 
-The exact sign must be validated on the physical test device.
+Do not assume horizontal gain should equal vertical gain.
 
-Do not assume mathematical axis conventions automatically correspond to the desired perceived direction.
+Do not add visual roll compensation.
 
----
+Add deterministic tests for:
 
-## 6. Dynamic Reference Frame
+* stationary horizontal orientation
+* slow horizontal movement
+* rapid horizontal impulse
+* gain
+* dead zone
+* clamp
 
-The reference orientation must slowly follow the current orientation.
-
-Slow intentional movement should therefore recenter naturally.
-
-Rapid movement should produce compensation.
-
-The desired behavior is approximately:
-
-```text
-slow movement / posture change
-        ↓
-reference follows
-        ↓
-little sustained compensation
-
-rapid vibration / bump
-        ↓
-reference cannot follow immediately
-        ↓
-temporary compensation
-```
-
-The implementation should behave like a high-pass or band-pass stabilizer rather than an absolute world lock.
+Build and test before proceeding.
 
 ---
 
-## 7. MVP 1 Filtering Pipeline
+# Phase 2 — Linear-accelerometer bump detection
 
-Use a simple, understandable filtering pipeline.
+Add:
 
-Conceptually:
+```kotlin
+Sensor.TYPE_LINEAR_ACCELERATION
+```
+
+Do NOT integrate acceleration into position.
+
+The accelerometer is only for:
+
+* bump detection
+* vibration intensity
+* adaptive-strength input
+
+Create a simple bump/vibration metric.
+
+A reasonable starting model is:
 
 ```text
-rotation vector
-    ↓
-relative pitch
-    ↓
-high-pass behavior / moving reference
-    ↓
-optional low-pass smoothing
-    ↓
-dead zone
-    ↓
-gain
-    ↓
-clamp
-    ↓
-vertical translation
+magnitude = sqrt(ax² + ay² + az²)
+```
+
+followed by appropriate:
+
+* noise floor
+* normalization
+* smoothing
+* attack/release or envelope behavior
+* clamping
+
+Produce a normalized value such as:
+
+```text
+0.0 = calm
+1.0 = strong vibration/bump
 ```
 
 Requirements:
 
-- stationary phone should produce approximately zero transform
-- slow movement should recenter toward zero
-- rapid pitch jitter should produce opposite visual motion
-- tiny sensor noise should not make the text swim
-- extreme movement should not send the UI off-screen
-- disabling stabilization should smoothly return the transform to zero
+* stationary noise must remain near zero
+* short acceleration spikes must react quickly
+* the signal must decay smoothly
+* sustained vibration must produce a stable elevated value
+* extreme samples must remain bounded
+* implementation must be independently unit-testable
 
-Prefer a simple filter that can be tested over a complex Kalman filter.
+Add appropriate debug output.
 
-Do not add complex sensor fusion unless the simpler approach has been shown insufficient.
-
----
-
-## 8. Configuration
-
-Experimental constants must live in a configuration object, not be scattered through the code.
-
-Create something conceptually similar to:
-
-```kotlin
-data class StabilizationConfig(
-    val gain: Float,
-    val maxVerticalTranslationPx: Float,
-    val deadZone: Float,
-    val referenceFollowRate: Float,
-    val smoothingFactor: Float,
-    val overscanScale: Float
-)
-```
-
-Names and exact representation may differ where appropriate.
-
-Suggested starting values only:
-
-```text
-vertical clamp: ±80 px
-overscan scale: 1.05–1.10
-gain: approximately 0.6
-```
-
-These are experimental values.
-
-Do not treat them as final.
+Build and test before proceeding.
 
 ---
 
-## 9. Architecture
+# Phase 3 — Shake score and adaptive strength
 
-Keep sensor acquisition, stabilization math, rendering, and UI controls separate.
-
-Suggested structure:
-
-```text
-app/src/main/java/com/steadyscreen/
-
-├── sensor/
-│   ├── SensorProvider.kt
-│   ├── AndroidSensorProvider.kt
-│   └── SensorSample.kt
-│
-├── stabilization/
-│   ├── StabilizationEngine.kt
-│   ├── StabilizationConfig.kt
-│   ├── StabilizationTransform.kt
-│   └── MotionFilter.kt
-│
-├── render/
-│   └── StabilizedContent.kt
-│
-├── ui/
-│   ├── MainScreen.kt
-│   ├── ReadingTestScreen.kt
-│   └── DebugScreen.kt
-│
-└── MainActivity.kt
-```
-
-The exact structure may be simplified if that produces cleaner code.
-
-Do not create unnecessary abstractions merely to match this tree.
-
-The important separation is:
-
-```text
-Sensor acquisition
-        ↓
-Stabilization engine
-        ↓
-Stabilization transform
-        ↓
-Compose rendering
-```
-
-The stabilization engine must not depend on Compose.
-
----
-
-## 10. Core Output Model
-
-Use a central transform model.
-
-For example:
-
-```kotlin
-data class StabilizationTransform(
-    val translationX: Float = 0f,
-    val translationY: Float = 0f,
-    val rotationZ: Float = 0f,
-    val confidence: Float = 1f
-)
-```
-
-MVP 1 only needs to actively use:
-
-```text
-translationY
-```
-
-Keep the structure extensible enough for later horizontal and rotational stabilization without implementing those features now.
-
----
-
-## 11. Rendering
-
-Use Jetpack Compose.
-
-Create a reading test containing multiple paragraphs of readable text.
-
-Apply vertical stabilization to the reading content using `graphicsLayer`.
+Create a general shake score combining rotational and translational motion.
 
 Conceptually:
 
-```kotlin
-Modifier.graphicsLayer {
-    translationY = transform.translationY
-    scaleX = overscanScale
-    scaleY = overscanScale
-}
+```text
+rotationalShake = filtered gyroscope magnitude
+linearShake     = accelerometer bump/vibration metric
+
+shakeScore =
+    gyroWeight * rotationalShake
+  + accelWeight * linearShake
 ```
 
-The overscan exists to reduce visible blank edges while the content moves.
-
-Do not over-engineer edge filling for MVP 1.
-
----
-
-## 12. MVP UI
-
-The application should contain at least:
-
-### Main / Reading Test
-
-- stabilization ON/OFF
-- gain slider
-- several paragraphs of text
-- live stabilized rendering
-
-### Debug Information
-
-Show at least:
-
-- current relative pitch
-- gyroscope X
-- gyroscope Y
-- gyroscope Z
-- raw vertical compensation
-- filtered vertical compensation
-- approximate sensor update rate
-
-The debug display must not cause unnecessary full-screen recompositions at sensor frequency.
-
-Throttle or structure debug updates appropriately.
-
----
-
-## 13. Sensor Sampling
-
-Aim for approximately:
+Normalize/clamp the result to approximately:
 
 ```text
-100–200 Hz sensor sampling
+0.0 .. 1.0
 ```
 
-Do not require rates above Android's normal practical high-rate sensor limits for MVP 1.
+Keep thresholds and weights configurable.
 
-Rendering should follow the display frame rate rather than attempting to render once per sensor event.
+Then implement Adaptive stabilization mode.
 
-Avoid expensive work and unnecessary allocations in sensor callbacks.
-
----
-
-## 14. Lifecycle
-
-Sensor listeners must be registered and unregistered correctly.
-
-Do not leave sensors active unnecessarily.
-
-Account for:
-
-- activity lifecycle
-- app backgrounding
-- screen leaving the reading test
-- configuration / orientation changes where applicable
-
-When stabilization becomes unavailable, return smoothly to a zero transform.
-
----
-
-## 15. Performance
-
-MVP targets:
-
-- responsive sensor processing
-- smooth 60 Hz rendering
-- 120 Hz compatibility where available
-- no network dependency
-- no server
-- no database
-- no persistent sensor logging
-
-Do not prematurely optimize, but avoid obviously wasteful operations in high-frequency paths.
-
----
-
-## 16. Privacy
-
-MVP 1 must work entirely locally.
-
-Do not add:
-
-- analytics
-- telemetry
-- cloud services
-- accounts
-- advertising
-- persistent IMU storage
-
-Sensor data should be processed in memory and discarded.
-
----
-
-## 17. Tests
-
-The stabilization logic must be testable independently of Android UI code.
-
-Add unit tests for at least:
-
-### Stationary input
-
-Expected:
+Desired behavior:
 
 ```text
-transform ≈ zero
+calm
+    → low effective stabilization
+
+moderate vibration
+    → medium stabilization
+
+strong vibration
+    → stronger stabilization
 ```
 
-### Slow intentional movement
+Use smooth attack/release dynamics.
 
-Expected:
+The gain should increase relatively quickly when shaking begins and decay more slowly when motion stops.
+
+Avoid rapid gain pumping.
+
+A reasonable model is:
 
 ```text
-temporary compensation
-then reference follows
-transform returns toward zero
+effectiveVerticalGain =
+    baseVerticalGain * adaptiveMultiplier
+
+effectiveHorizontalGain =
+    baseHorizontalGain * adaptiveMultiplier
 ```
 
-### Fast pitch impulse
+Requirements:
 
-Expected:
+* Manual mode must remain available
+* Adaptive mode must be user-selectable
+* adaptive multiplier must be bounded
+* current shake score must be visible in debug UI
+* current adaptive multiplier/effective gain must be visible
+* adaptive gain must never bypass the existing translation clamps
+
+Add tests for:
+
+* calm state
+* sudden vibration onset
+* sustained moderate vibration
+* strong vibration
+* release to calm
+* min/max bounds
+* finite output
+* stable behavior without oscillatory gain changes
+
+Build and test before proceeding.
+
+---
+
+# Phase 4 — Decouple sensors from rendered frames
+
+The MVP should no longer publish visual transforms directly at sensor-event frequency.
+
+Target architecture:
 
 ```text
-opposing vertical compensation
-then smooth decay/recentering
+IMU ~100–200 Hz
+       ↓
+stabilization/model state
+       ↓
+latest orientation + gyro state
+       ↓
+VSYNC/frame callback
+       ↓
+predict transform for frame
+       ↓
+one published visual transform
+       ↓
+Compose graphicsLayer
 ```
 
-### Dead zone
+Use an Android frame timing mechanism suitable for the project architecture, preferably `Choreographer`/VSYNC-based timing.
 
-Expected:
+Requirements:
+
+* support active 60 Hz rendering
+* support active 120 Hz rendering
+* do not hard-code 16.67 ms or 8.33 ms as permanent assumptions
+* derive/measure actual frame cadence
+* tolerate refresh-rate changes
+* preferably publish one transform per frame
+* avoid multiple unnecessary Compose state publications during a single frame
+* sensor processing must remain independent from Compose
+* expose approximate render frame rate in debug information
+
+Do not force the display into 120 Hz merely to satisfy the MVP.
+
+The stabilizer must operate correctly at whichever supported rate Android is currently using.
+
+Build and test before proceeding.
+
+---
+
+# Phase 5 — Predictive rendering
+
+Use the latest gyroscope angular velocity to compensate for sensor/render/display latency.
+
+Conceptually:
 
 ```text
-tiny input produces zero or negligible transform
+predictedOrientation =
+    currentOrientation
+    + angularVelocity * predictionHorizon
 ```
 
-### Gain
+Prefer quaternion/angular extrapolation if it integrates cleanly with the current quaternion implementation.
 
-Expected:
+A simpler pitch/yaw extrapolation is acceptable if it is isolated, mathematically coherent, and tested.
+
+Requirements:
+
+* prediction can be enabled/disabled live
+* prediction horizon is configurable
+* prediction horizon is clamped
+* prediction must not accumulate long-term drift
+* prediction starts from the current fused state rather than from a separately integrated gyro orientation
+* stale gyroscope data must disable or reduce prediction
+* extreme angular velocities must remain bounded
+* prediction should target the frame/display timing rather than blindly assume a single fixed delay
+
+Use approximately:
 
 ```text
-changing gain proportionally changes compensation
+8–20 ms
 ```
 
-### Clamp
+only as an initial experimental tuning range.
 
-Expected:
+Expose:
+
+* prediction enabled
+* configured horizon
+* effective horizon if different
+* frame rate/timing information
+
+Add tests for:
+
+* zero angular velocity
+* constant angular velocity
+* prediction disabled
+* stale gyro input
+* horizon clamp
+* extreme angular velocity
+
+Build and test before proceeding.
+
+---
+
+# Phase 6 — Two-axis overscan
+
+The previous vertical stabilizer could rely primarily on vertical overscan.
+
+Now both:
 
 ```text
-output never exceeds configured maximum
+translationX
+translationY
 ```
 
-### Reset
+can expose edges.
 
-Expected:
+Ensure the Compose rendering layer provides enough overscan in both directions.
+
+The simplest acceptable implementation is a configurable fixed scale such as:
 
 ```text
-engine state returns to neutral
+~1.05–1.10
 ```
 
-Use synthetic deterministic inputs.
+If the existing architecture makes dynamic overscan simple and stable, it may be implemented.
 
-Do not rely only on instrumentation tests where plain unit tests are possible.
+However, do NOT create distracting zoom pumping.
 
----
+If dynamic overscan is used:
 
-## 18. Physical Validation
+* update it slowly
+* bound it
+* never change scale at sensor frequency
+* do not directly map shakeScore to rapidly changing scale
+* keep a reasonable minimum overscan
 
-Automated tests cannot determine whether the feature actually improves reading.
+Prefer a stable fixed overscan over a clever but visibly unstable implementation.
 
-Physical-device validation is mandatory.
+Expose the overscan scale for debugging/tuning.
 
-Test progressively:
-
-1. phone stationary on a desk
-2. controlled hand pitching
-3. walking
-4. train / bus
-5. bumpy car ride as a passenger
-
-Never perform interactive testing while driving.
-
-Compare stabilization ON against OFF.
-
-Do not claim that the stabilization is successful until it has been physically tested.
+Build and test before proceeding.
 
 ---
 
-## 19. Explicit MVP 1 Non-Goals
+# Phase 7 — Quick Settings tile
 
-Do NOT implement any of the following unless explicitly requested:
+Implement a real Android Quick Settings tile with `TileService`.
 
-- horizontal stabilization
-- rotational screen compensation
-- accelerometer-derived translation
-- adaptive shake strength
-- camera input
-- face tracking
-- eye tracking
-- machine learning
-- MediaProjection
-- screen recording
-- AccessibilityService
-- system-wide stabilization
-- Quick Settings tile
-- root support
-- AOSP modifications
-- custom ROM support
-- backend
-- database
-- authentication
-- analytics
-- cloud synchronization
-- complex Kalman filters
+The tile should toggle the same authoritative stabilization-enabled state used by the app UI.
 
-Keep MVP 1 deliberately small.
-
----
-
-## 20. Future Milestones
-
-Only after MVP 1 has been physically evaluated:
-
-### MVP 2
-
-Potential additions:
-
-- horizontal stabilization
-- linear-acceleration shake detection
-- adaptive stabilization strength
-- improved dead-zone tuning
-- predictive rendering
-- frame timing instrumentation
-- Quick Settings control
-
-### MVP 3
-
-Research system-wide stabilization.
-
-First experiment:
+Architecture should effectively be:
 
 ```text
-AccessibilityService
-        ↓
-MagnificationController
-        ↓
-small fullscreen overscan zoom
-        ↓
-IMU-driven viewport movement
+                  shared enabled state
+                  /                 \
+                 /                   \
+        Compose application       TileService
 ```
 
-Treat system-wide stabilization as research.
+Do NOT maintain independent UI/tile booleans.
 
-Do not assume Android's accessibility magnification API can update with sufficiently low latency.
+Use a simple persisted Android-appropriate settings mechanism.
 
----
+No database is necessary.
 
-# Development Rules
+Requirements:
 
-## 21. General Engineering Rules
+* tapping the tile toggles stabilization enabled/disabled
+* tile displays active/inactive state correctly
+* app UI reflects changes made from the tile
+* tile reflects changes made from inside the app
+* state survives activity recreation
+* tile works even when MainActivity is not currently open
+* do not create a permanently running background service just for the tile
+* document how the user adds the SteadyScreen tile to Pixel Quick Settings
 
-1. Read this entire file before editing.
-2. Inspect the existing repository before creating files.
-3. Prefer the smallest implementation that proves the current hypothesis.
-4. Do not silently expand scope.
-5. Keep stabilization math independent from Android UI code.
-6. Prefer deterministic, testable algorithms.
-7. Avoid unnecessary dependencies.
-8. Avoid unnecessary abstractions.
-9. Keep experimental constants configurable.
-10. Comment why non-obvious math exists rather than narrating obvious syntax.
-11. Do not replace working code without a concrete reason.
-12. Do not claim physical behavior that has not been tested on hardware.
-13. Fix compilation and test failures caused by your changes before declaring completion.
+Remember:
 
----
+MVP 2 is still an in-app stabilizer.
 
-## 22. Repository Initialization
+The Quick Settings tile is control infrastructure for the application and future system-wide work. Do NOT begin system-wide stabilization.
 
-If the repository contains only a README or otherwise lacks an Android project:
+Add tests for shared-state logic where practical.
 
-- initialize the Android project in the repository
-- use Kotlin
-- use Jetpack Compose
-- use Gradle Kotlin DSL
-- create an appropriate Android `.gitignore` if one does not already exist
-- do not delete an existing README without a reason
-- preserve existing repository metadata
+Use instrumentation/framework tests only where ordinary JVM testing is inappropriate.
 
-Do not create a nested Git repository.
-
-The Android project root should be the existing Git repository root unless there is a strong reason otherwise.
+Build and test before proceeding.
 
 ---
 
-## 23. Git Workflow
+# UI / debug requirements
 
-Treat `main` as protected.
+Preserve the existing reading-test UI.
 
-For substantial development work:
+Add enough controls for physical A/B testing.
 
-1. inspect the current branch and repository status
-2. ensure the working tree state is understood
-3. create an appropriately named feature branch before editing
-4. implement the requested work
-5. run relevant tests and builds
-6. create logical commits for coherent completed changes
+At minimum expose:
 
-For the first MVP, an appropriate branch name is:
+* stabilization ON/OFF
+* Manual / Adaptive mode
+* vertical gain
+* horizontal gain
+* prediction ON/OFF
+
+Expose prediction horizon and overscan scale if this can be done without cluttering the main reading experience; otherwise place those in debug/configuration controls.
+
+Debug information should include at least:
 
 ```text
-feat/mvp1-vertical-stabilizer
+relative pitch
+relative horizontal/yaw value
+
+gyroscope X/Y/Z
+
+linear acceleration X/Y/Z or magnitude
+bump intensity
+
+rotational shake
+combined shake score
+adaptive multiplier / effective gain
+
+raw X compensation
+raw Y compensation
+
+final translationX
+final translationY
+
+sensor update rate
+render update rate / frame rate
+
+prediction enabled
+prediction horizon
+
+overscan scale
+
+stabilization enabled
+Manual/Adaptive mode
 ```
 
-Use meaningful commit messages, preferably Conventional Commit style.
+Do not force the entire screen to recompose at 100–200 Hz for debug values.
 
-Examples:
+Throttle or isolate debug-state publication.
+
+---
+
+# Configuration
+
+Extend the existing `StabilizationConfig` or equivalent.
+
+Do not scatter experimental constants around the codebase.
+
+New configurable concepts should include as appropriate:
+
+* vertical gain
+* horizontal gain
+* vertical clamp
+* horizontal clamp
+* adaptive enabled/mode
+* adaptive min/max multiplier
+* adaptive attack
+* adaptive release
+* gyroscope shake weight
+* accelerometer shake weight
+* accelerometer noise floor
+* prediction enabled
+* prediction horizon
+* prediction maximum horizon
+* overscan scale
+
+Use the existing configuration naming/style rather than introducing a parallel configuration system.
+
+---
+
+# Important non-goals
+
+Do NOT implement:
+
+* AccessibilityService
+* Android magnification stabilization
+* arbitrary-app/system-wide stabilization
+* MediaProjection
+* screen recording
+* camera
+* face tracking
+* eye tracking
+* ML
+* accelerometer double integration
+* inertial absolute position tracking
+* root support
+* AOSP modifications
+* custom ROM functionality
+* backend
+* accounts
+* database
+* analytics
+* cloud services
+
+Do not begin MVP 3.
+
+---
+
+# Performance requirements
+
+Preserve the low-latency behavior that made MVP 1 promising.
+
+Avoid:
+
+* allocations in hot sensor callbacks where practical
+* logging every IMU sample
+* starting coroutines per sensor sample
+* publishing Compose state per sensor sample
+* blocking the main/UI thread
+* large rolling collections where an EMA/envelope can achieve the same result
+
+Target:
 
 ```text
-chore(android): initialize Compose project
-feat(sensor): add IMU sensor provider
-feat(stabilization): add vertical stabilization engine
-feat(ui): add stabilized reading test
-test(stabilization): add synthetic motion tests
+sensor sampling: ~100–200 Hz
+visual transform publishing: once per display frame
+display operation: 60 or 120 Hz as active
+network: none
+raw sensor persistence: none
 ```
 
-Do not create arbitrary micro-commits for every edited file.
+---
 
-Do not combine the entire project into one giant commit when the work naturally separates into coherent stages.
+# Regression requirements
+
+MVP 1 is a proven baseline.
+
+All existing MVP 1 tests must remain passing.
+
+Specifically verify that after MVP 2:
+
+* vertical stabilization still operates
+* slow vertical movement still recenters
+* vertical sign has not accidentally changed
+* vertical clamp/dead-zone/gain still work
+* disabling stabilization remains smooth
+* stationary text does not become noticeably more unstable because of prediction/adaptive logic
+
+Add regression tests where necessary.
 
 ---
 
-## 24. Git Safety Boundaries
+# Final verification
 
-You MAY autonomously:
+Before declaring MVP 2 technically complete, run the appropriate equivalents of:
 
-- inspect Git status and history
-- create a feature branch
-- stage files
-- create local commits
-- create meaningful commit messages
+```bash
+./gradlew test
+./gradlew assembleDebug
+```
 
-You MUST NOT autonomously:
+Also run:
 
-- push commits to a remote unless the user explicitly requested or authorized pushing
-- merge into `main`
-- push directly to `main`
-- force-push
-- rewrite published history
-- delete remote branches
-- discard unrelated user changes
-- reset or clean the working tree destructively without explicit authorization
+```bash
+./gradlew lint
+```
 
-If pre-existing unrelated changes are present, preserve them.
+if lint is configured and practical.
 
-Do not silently include unrelated changes in your commits.
+Fix implementation-caused failures before completion.
 
----
+Inspect:
 
-## 25. Build and Verification
+```bash
+git status
+git log --oneline --decorate
+```
 
-Before declaring the MVP task complete:
+Ensure:
 
-1. run unit tests
-2. run the appropriate Gradle build
-3. run lint if configured and practical
-4. fix failures caused by the implementation
-5. inspect `git status`
-6. ensure intended changes are committed
-7. ensure no build outputs or local machine configuration were committed
-
-The repository must not include:
-
-- `local.properties`
-- Gradle build output
-- IDE caches
-- secrets
-- SDK paths
-- generated temporary files
+* all intended source changes are committed
+* no generated build outputs are committed
+* no `local.properties`
+* no SDK paths
+* no raw sensor logs
+* no unrelated files
 
 ---
 
-## 26. Completion Report
+# Commits
 
-When finishing a task, report concisely:
+Create logical local commits as coherent stages become complete.
 
-- branch name
-- commits created
-- architecture implemented
-- important files added or changed
-- tests/build commands run
-- whether they passed
-- parameters that should be tuned first
-- anything that still requires physical Pixel 8 validation
-- any known limitation or deliberately deferred work
+A reasonable history could resemble:
 
-Do not proceed to later MVPs merely because MVP 1 compiles.
+```text
+feat(stabilization): add horizontal compensation
+feat(sensor): add linear acceleration bump detection
+feat(stabilization): add adaptive strength control
+feat(render): synchronize transforms to display frames
+feat(render): add predictive stabilization
+feat(render): support two-axis overscan
+feat(quicksettings): add stabilization tile
+test(stabilization): cover mvp2 motion behavior
+```
 
-The next milestone must be driven by the physical results of MVP 1.
+This is not mandatory grouping.
+
+Follow the actual implementation.
+
+Do not produce meaningless micro-commits.
+
+Do not put the entire MVP into one giant commit if the work naturally separates.
+
+Do not push.
 
 ---
 
-# Definition of Done — MVP 1
+# Completion report
 
-MVP 1 is technically complete when:
+When finished, give me:
 
-- the Android project builds
-- the application launches
-- game rotation vector data is received
-- gyroscope data is received
-- a reading test exists
-- stabilization can be enabled and disabled
-- stabilization gain can be adjusted live
-- relative pitch produces inverse vertical content translation
-- slow movement recenters naturally
-- rapid pitch motion produces visible temporary counter-motion
-- output is dead-zoned and clamped
-- debug information is visible
-- stabilization logic has unit tests
-- tests pass
-- Gradle build passes
-- the work is committed on the feature branch
-- nothing has been pushed or merged unless explicitly requested
+1. branch name
+2. local commits created
+3. baseline test/build result before the changes
+4. architecture changes
+5. important files added/modified
+6. exact horizontal stabilization algorithm
+7. exact bump-detection algorithm
+8. shake-score calculation
+9. adaptive-strength calculation
+10. attack/release behavior
+11. prediction algorithm
+12. prediction timing source
+13. frame/VSYNC synchronization architecture
+14. how 60 Hz and 120 Hz are handled
+15. overscan strategy
+16. Quick Settings architecture
+17. default configuration/tuning values
+18. final test commands/results
+19. final build results
+20. exact steps to install/run the debug APK on my Pixel 8
+21. exact steps to add the SteadyScreen Quick Settings tile
+22. physical test plan comparing:
 
-MVP 1 is product-validated only after testing on the Pixel 8 in a real moving environment.
+    * OFF
+    * MVP1-like manual vertical mode
+    * two-axis manual mode
+    * adaptive + prediction mode
+23. which parameter to tune if:
+
+    * horizontal motion is reversed
+    * horizontal compensation is excessive
+    * stabilization visibly lags
+    * prediction overshoots
+    * adaptive mode reacts too slowly
+    * adaptive mode pumps
+    * edges become visible
+    * overscan zoom is excessive
+24. known limitations
+25. explicitly deferred MVP 3 work
+
+Stop after MVP 2.
+
+Do not push or merge anything.
