@@ -35,7 +35,8 @@ internal fun TuningDialog(
             Column(Modifier.verticalScroll(rememberScrollState())) {
                 TuningProfiles(config, onConfig)
                 Text("Changes apply live and save automatically on this device. Reset defaults restores tuning values.")
-                TuningSlider("Gain", config.gain, 0f..2f, "%.2f") { onConfig(config.copy(gain = it)) }
+                Mvp2TuningControls(config, onConfig)
+                TuningSlider("Vertical gain", config.gain, 0f..2f, "%.2f") { onConfig(config.copy(gain = it)) }
                 TuningSlider("Vertical clamp", config.maxVerticalTranslationPx, 1f..200f, "±%.0f px") {
                     onConfig(config.copy(maxVerticalTranslationPx = it))
                 }
@@ -84,7 +85,7 @@ internal fun TuningDialog(
 }
 
 @Composable
-private fun TuningSlider(
+internal fun TuningSlider(
     label: String,
     value: Float,
     range: ClosedFloatingPointRange<Float>,

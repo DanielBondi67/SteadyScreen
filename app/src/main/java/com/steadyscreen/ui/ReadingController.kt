@@ -13,6 +13,23 @@ import com.steadyscreen.stabilization.StabilizationEngine
 import com.steadyscreen.stabilization.StabilizationTransform
 
 data class DebugInfo(
+    val config: StabilizationConfig = StabilizationConfig(),
+    val horizontalDegrees: Double = 0.0,
+    val accelerationX: Float = 0f,
+    val accelerationY: Float = 0f,
+    val accelerationZ: Float = 0f,
+    val accelerationMagnitude: Double = 0.0,
+    val bumpIntensity: Double = 0.0,
+    val rotationalShake: Double = 0.0,
+    val shakeScore: Double = 0.0,
+    val adaptiveMultiplier: Double = 1.0,
+    val effectiveVerticalGain: Double = 0.0,
+    val effectiveHorizontalGain: Double = 0.0,
+    val predictionHorizonSeconds: Double = 0.0,
+    val overscan: OverscanGeometry = OverscanGeometry(1.08f, 0f, 0f),
+    val rawX: Float = 0f,
+    val finalX: Float = 0f,
+    val displayHz: Float = 0f,
     val pitchDegrees: Double = 0.0,
     val gyroX: Float = 0f,
     val gyroY: Float = 0f,
@@ -25,7 +42,7 @@ data class DebugInfo(
 )
 
 /** UI bridge: sensor events only touch plain engine state; Compose publication follows frames. */
-class ReadingController(context: Context, displayRotation: () -> Int) {
+class ReadingController(context: Context, private val displayRefreshRate: () -> Float = { 0f }, displayRotation: () -> Int) {
     val engine = StabilizationEngine()
     private val sensors = AndroidSensorProvider(context.applicationContext,
         engine.config.sensorSamplingPeriodUs,
@@ -83,7 +100,19 @@ class ReadingController(context: Context, displayRotation: () -> Int) {
         transform = overscan.constrain(engine.frame(now, available, frameTiming.periodSeconds))
         if (now - lastDebugNanos >= engine.config.debugIntervalNanos) {
             lastDebugNanos = now
+            val accelFresh = sensors.accelerationTimestampNanos > 0 && now >= sensors.accelerationTimestampNanos &&
+                (now - sensors.accelerationTimestampNanos) * 1e-9 <= engine.config.sensorTimeoutSeconds
             debug = DebugInfo(
+                config = engine.config,
+                horizontalDegrees = Math.toDegrees(engine.relativeHorizontalRadians),
+                accelerationX = sensors.accelerationX, accelerationY = sensors.accelerationY,
+                accelerationZ = sensors.accelerationZ, accelerationMagnitude = engine.bump.magnitude,
+                bumpIntensity = engine.bumpIntensity, rotationalShake = engine.rotationalShake,
+                shakeScore = engine.shakeScore, adaptiveMultiplier = engine.adaptiveMultiplier,
+                effectiveVerticalGain = engine.effectiveVerticalGain, effectiveHorizontalGain = engine.effectiveHorizontalGain,
+                predictionHorizonSeconds = engine.effectivePredictionHorizonSeconds,
+                overscan = overscan, rawX = engine.rawTranslationX, finalX = transform.translationX,
+                displayHz = displayRefreshRate(),
                 pitchDegrees = Math.toDegrees(engine.relativePitchRadians),
                 gyroX = sensors.gyroX, gyroY = sensors.gyroY, gyroZ = sensors.gyroZ,
                 rawY = engine.rawTranslationY, finalY = transform.translationY,
@@ -93,7 +122,9 @@ class ReadingController(context: Context, displayRotation: () -> Int) {
                     !sensors.running -> sensors.status
                     !orientationFresh -> "Waiting for game rotation vector / stream stale"
                     !gyroFresh -> "Waiting for gyroscope / stream stale"
-                    else -> "Both sensors active"
+                    !sensors.accelerationAvailable -> "Orientation + gyro active; no linear acceleration"
+                    !accelFresh -> "Orientation + gyro active; linear acceleration stale"
+                    else -> "All three sensors active"
                 },
             )
         }

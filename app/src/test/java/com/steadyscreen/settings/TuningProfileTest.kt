@@ -24,8 +24,8 @@ class TuningProfileTest {
         assertNotEquals(profile.id, restored.id)
         assertTrue(json.contains("\n"))
         val root = JSONObject(json)
-        assertEquals(12, root.getJSONObject("config").length())
-        assertEquals(12, root.getJSONObject("units").length())
+        assertEquals(SettingsCodec.encode(ReadingSettings()).size - 2, root.getJSONObject("config").length())
+        assertEquals(root.getJSONObject("config").length(), root.getJSONObject("units").length())
         assertFalse(root.has("readingText"))
         assertFalse(root.getJSONObject("config").has("enabled"))
     }
@@ -112,7 +112,7 @@ class TuningProfileTest {
 
     @Test fun wrongVersionFormatUnitsAndTrailingDataAreRejected() {
         val original = ProfileJson.export(profile)
-        for ((key, value) in mapOf("version" to 2, "format" to "another-app", "name" to " ")) {
+        for ((key, value) in mapOf("version" to 3, "format" to "another-app", "name" to " ")) {
             assertThrows(Exception::class.java) { ProfileJson.import(JSONObject(original).put(key, value).toString()) }
         }
         val changedUnits = JSONObject(original)

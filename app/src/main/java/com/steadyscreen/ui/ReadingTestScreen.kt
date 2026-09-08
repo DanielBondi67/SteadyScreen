@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -43,6 +44,8 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.LifecycleResumeEffect
+import com.steadyscreen.stabilization.StabilizationConfig
+import com.steadyscreen.stabilization.StabilizationMode
 import com.steadyscreen.render.StabilizedContent
 import com.steadyscreen.settings.ReadingSettings
 import com.steadyscreen.settings.ReadingSettingsStore
@@ -53,7 +56,7 @@ import kotlinx.coroutines.isActive
 fun ReadingTestScreen() {
     val context = LocalContext.current
     val view = LocalView.current
-    val controller = remember(context, view) { ReadingController(context) { view.display?.rotation ?: 0 } }
+    val controller = remember(context, view) { ReadingController(context, { view.display?.refreshRate ?: 0f }) { view.display?.rotation ?: 0 } }
     val settingsStore = remember(context) { ReadingSettingsStore(context) }
     var settings by remember(settingsStore) { mutableStateOf(settingsStore.load()) }
     val updateSettings: (ReadingSettings) -> Unit = {
@@ -99,9 +102,9 @@ fun ReadingTestScreen() {
             if (maxWidth > maxHeight) {
                 Row(Modifier.fillMaxSize()) {
                     Column(Modifier.width(300.dp).verticalScroll(rememberScrollState())) {
-                        Controls(enabled, config.gain,
+                        Controls(enabled, config,
                             { settingsStore.setEnabled(it) },
-                            { updateSettings(settings.copy(config = settings.config.copy(gain = it))) },
+                            { updateSettings(settings.copy(config = it)) },
                             onTuning = { showTuning = true }, onText = { showTextEditor = true })
                         DebugPanel(controller, enabled, showDebug) {
                             updateSettings(settings.copy(showDebug = !settings.showDebug))
@@ -111,9 +114,9 @@ fun ReadingTestScreen() {
                 }
             } else {
                 Column(Modifier.fillMaxSize()) {
-                    Controls(enabled, config.gain,
+                    Controls(enabled, config,
                         { settingsStore.setEnabled(it) },
-                        { updateSettings(settings.copy(config = settings.config.copy(gain = it))) },
+                        { updateSettings(settings.copy(config = it)) },
                         onTuning = { showTuning = true }, onText = { showTextEditor = true })
                     HorizontalDivider()
                     ReadingText(controller, customText, Modifier.weight(1f).fillMaxWidth())
@@ -130,9 +133,9 @@ fun ReadingTestScreen() {
 @Composable
 private fun Controls(
     enabled: Boolean,
-    gain: Float,
+    config: StabilizationConfig,
     onEnabled: (Boolean) -> Unit,
-    onGain: (Float) -> Unit,
+    onConfig: (StabilizationConfig) -> Unit,
     onTuning: () -> Unit,
     onText: () -> Unit,
 ) {
@@ -144,9 +147,26 @@ private fun Controls(
             Switch(checked = enabled, onCheckedChange = onEnabled,
                 modifier = Modifier.semantics { contentDescription = "Stabilization" })
         }
-        Text(String.format(Locale.US, "Gain %.2f", gain), style = MaterialTheme.typography.labelLarge)
-        Slider(value = gain, onValueChange = onGain, valueRange = 0f..2f,
-            modifier = Modifier.semantics { contentDescription = "Stabilization gain" })
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween) {
+            TextButton(onClick = { onConfig(config.copy(mode = if (config.mode == StabilizationMode.Manual)
+                StabilizationMode.Adaptive else StabilizationMode.Manual)) }) { Text("Mode: ${config.mode}") }
+            Text("Prediction", style = MaterialTheme.typography.labelLarge)
+            Switch(config.predictionEnabled, { onConfig(config.copy(predictionEnabled = it)) },
+                Modifier.semantics { contentDescription = "Prediction" })
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            Column(Modifier.weight(1f)) {
+                Text(String.format(Locale.US, "Vertical %.2f", config.gain), style = MaterialTheme.typography.labelLarge)
+                Slider(value = config.gain, onValueChange = { onConfig(config.copy(gain = it)) }, valueRange = 0f..2f,
+                    modifier = Modifier.semantics { contentDescription = "Vertical gain" })
+            }
+            Column(Modifier.weight(1f)) {
+                Text(String.format(Locale.US, "Horizontal %.2f", config.horizontalGain), style = MaterialTheme.typography.labelLarge)
+                Slider(value = config.horizontalGain, onValueChange = { onConfig(config.copy(horizontalGain = it)) }, valueRange = 0f..2f,
+                    modifier = Modifier.semantics { contentDescription = "Horizontal gain" })
+            }
+        }
         Row {
             TextButton(onClick = onTuning) { Text("Tune settings") }
             TextButton(onClick = onText) { Text("Reading text") }
@@ -164,10 +184,24 @@ private fun DebugPanel(controller: ReadingController, enabled: Boolean, expanded
         if (expanded) {
             Text(
                 String.format(Locale.US,
-                    "%s  •  Pitch %+.3f°  •  RV %.0f Hz\nGyro XYZ: %+.3f  %+.3f  %+.3f rad/s\nVertical raw %+.1f px  →  final %+.1f px",
-                    if (enabled) "ON" else "OFF", info.pitchDegrees, info.orientationHz,
-                    info.gyroX, info.gyroY, info.gyroZ, info.rawY, info.finalY),
-                modifier = Modifier.padding(bottom = 8.dp),
+                    "%s • %s • Pitch %+.3f° • Horizontal %+.3f°\n" +
+                    "Gyro XYZ %+.3f %+.3f %+.3f rad/s\n" +
+                    "Accel XYZ %+.2f %+.2f %+.2f m/s² • |a| %.2f\n" +
+                    "Bump %.3f • Rotational %.3f • Shake %.3f\n" +
+                    "Multiplier %.2f • Effective gain V %.2f / H %.2f\n" +
+                    "Raw X %+.1f / Y %+.1f px\nFinal X %+.1f / Y %+.1f px\n" +
+                    "RV %.0f Hz • Render %.1f FPS • Display %.0f Hz\n" +
+                    "Prediction %s • lead %.1f / effective %.1f ms\n" +
+                    "Overscan base %.2f / actual %.2f×\nVisible limits X ±%.1f / Y ±%.1f px",
+                    if (enabled) "ON" else "OFF", info.config.mode, info.pitchDegrees, info.horizontalDegrees,
+                    info.gyroX, info.gyroY, info.gyroZ, info.accelerationX, info.accelerationY, info.accelerationZ,
+                    info.accelerationMagnitude, info.bumpIntensity, info.rotationalShake, info.shakeScore,
+                    info.adaptiveMultiplier, info.effectiveVerticalGain, info.effectiveHorizontalGain,
+                    info.rawX, info.rawY, info.finalX, info.finalY, info.orientationHz, info.renderHz, info.displayHz,
+                    if (!info.config.predictionEnabled) "OFF" else if (info.predictionHorizonSeconds > 0) "active" else "idle/stale",
+                    info.config.predictionHorizonSeconds * 1000, info.predictionHorizonSeconds * 1000,
+                    info.config.overscanScale, info.overscan.scale, info.overscan.limitX, info.overscan.limitY),
+                modifier = Modifier.heightIn(max = 150.dp).verticalScroll(rememberScrollState()).padding(bottom = 8.dp),
                 style = MaterialTheme.typography.labelSmall,
                 fontFamily = FontFamily.Monospace,
             )
